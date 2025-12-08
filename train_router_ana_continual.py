@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from transformers.models.llama import LlamaForCausalLM
 import torch
@@ -48,9 +48,14 @@ LLAMA_ATTENTION_CLASSES = {
 
 feature_layers = 4
 gamma = 10000
-router_weights_path = '/home/yanyue/TRACE_anyssr/router_weights'
-dataset_path = '/home/yanyue/LLM-CL-Benchmark_5000/'
-dataset_cache_path = '/home/yanyue/TRACE_anyssr/outputs_router'
+router_weights_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/router_weights'
+dataset_path = '/U_PZL2023ZZ0005/rhe/dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000/'
+dataset_cache_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/outputs_router_dataset_cache'
+paths = [router_weights_path,dataset_cache_path]
+
+for path in paths:
+    if not os.path.exists(path):
+        os.makedirs(path)
 
 class NewLlamaForCausalLM(LlamaForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
@@ -126,7 +131,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
             return_dict=return_dict,
             cache_position=cache_position,
         )
-        # 这里由于仅取前四层，outputs应该是第四层的输出
+        # only takes output of the first 4 layers 
 
         hidden_mean = outputs[0].mean(dim=1)
 
@@ -142,7 +147,7 @@ def load_model_and_tokenizer():
                 'meta-llama/Llama-2-7b-chat-hf',
                 device_map="auto",
                 torch_dtype="auto",
-                task_number=7,
+                task_number=8,
                 trust_remote_code=True,
                 gamma=10000
             )
@@ -171,9 +176,10 @@ def train():
     import numpy as np
 
     def train_initial_router(model, infer_dataloader, step):
-        """Train first 2 tasks"""
+        """Train first tasks"""
         with torch.no_grad():
-            print(f'---start training from {inference_tasks[0]} to {inference_tasks[step+1]}')
+            # print(f'---start training from {inference_tasks[0]} to {inference_tasks[step+1]}')
+            print(f'---start training from {inference_tasks[0]} to {inference_tasks[step]}')
             count = 0
             print('-----------------------start training-------------------')
             
@@ -181,12 +187,13 @@ def train():
                 labels = batch['gts']
                 input_ids = batch['input_ids'].to('cuda')
                 
-                # 获取模型输出
+
                 new_activation = model(input_ids).to(torch.float32)
                 labels = torch.tensor(labels)
-                label_onehot = F.one_hot(labels, step + 2).float().to('cuda')
+                # label_onehot = F.one_hot(labels, step + 2).float().to('cuda')
+                label_onehot = F.one_hot(labels, step + 1).float().to('cuda')
                 
-                # 累积计算自相关和互相关矩阵
+
                 if count == 0:
                     auto_cor = torch.t(new_activation) @ new_activation
                     crs_cor = torch.t(new_activation) @ (label_onehot)
@@ -197,26 +204,26 @@ def train():
                 count += 1
             
             print('Calculating Reverse')
-            # 计算并保存初始R矩阵
+
             R = np.mat(auto_cor.cpu().numpy() + 100 * np.eye(gamma)).I
             R_tensor = torch.tensor(R).float().cuda(non_blocking=True).cpu()
             Delta = R_tensor @ crs_cor.cpu()
             
-            # 保存初始权重和R矩阵
+
             torch.save(Delta, f'{router_weights_path}/step{step}_router_weight.pth')
             torch.save(model.fe.weight, f'{router_weights_path}/step{step}_fe_weight.pth')
             torch.save(R_tensor, f'{router_weights_path}/step{step}_R_matrix.pth')
             
-            print(f'Finished initial training from {inference_tasks[0]} to {inference_tasks[step+1]}')
-            return R_tensor, Delta  # 返回初始R矩阵
+            print(f'Finished initial training from {inference_tasks[0]} to {inference_tasks[step]}')
+            return R_tensor, Delta  
 
     def train_subsequent_router(model, infer_dataloader, step, prev_R, prev_Delta):
         """Recursive Train"""
-        # 把上阶段的R扩展一维，多余的填0
+        # router dimension expansion
         prev_Delta = F.pad(prev_Delta, (0, 1), mode='constant', value=0).to('cuda')
         prev_R = prev_R.to('cuda')
         with torch.no_grad():
-            print(f'Start training from {inference_tasks[0]} to {inference_tasks[step+1]}')
+            print(f'Start training from {inference_tasks[0]} to {inference_tasks[step]}')
             print(f'Use step{step-1} as initial R')
             count = 0
             print('-----------------------Start Recursive Train-------------------')
@@ -225,10 +232,10 @@ def train():
                 labels = batch['gts']
                 input_ids = batch['input_ids'].to('cuda')
                 
-                # 获取模型输出
                 new_activation = model(input_ids).to(torch.float32)
                 labels = torch.tensor(labels)
-                label_onehot = F.one_hot(labels, step + 2).float().to('cuda')
+                # label_onehot = F.one_hot(labels, step + 2).float().to('cuda')
+                label_onehot = F.one_hot(labels, step + 1).float().to('cuda')
 
                 prev_R = prev_R - prev_R @ new_activation.t() @ torch.pinverse(torch.eye(new_activation.shape[0]).to('cuda') +
                                                                     new_activation @ prev_R @ new_activation.t()) @ new_activation @ prev_R
@@ -237,20 +244,22 @@ def train():
             print('Calculate new R')
             new_R = prev_R
             
-            # 计算新的Delta
+
             new_Delta = prev_Delta
             
-            # 保存新的权重和R矩阵
             torch.save(new_Delta, f'{router_weights_path}/step{step}_router_weight.pth')
             torch.save(model.fe.weight, f'{router_weights_path}/step{step}_fe_weight.pth')
             torch.save(new_R, f'{router_weights_path}/step{step}_R_matrix.pth')
             
-            print(f'Finished training from {inference_tasks[0]} to {inference_tasks[step+1]}')
+            # print(f'Finished training from {inference_tasks[0]} to {inference_tasks[step+1]}')
+            print(f'Finished training from {inference_tasks[0]} to {inference_tasks[step]}')
             return new_R, new_Delta  # 返回新的R矩阵
 
-    # 主训练循环
-    for i in range(0, len(inference_tasks)-1):
-        cur_inference_tasks = inference_tasks[0:i+2]
+
+    # for i in range(0, len(inference_tasks)-1):
+    for i in range(0, len(inference_tasks)):
+        # cur_inference_tasks = inference_tasks[0:i+2]
+        cur_inference_tasks = inference_tasks[0:i+1]
         all_datasets = []
         
         if i == 0:
@@ -258,7 +267,6 @@ def train():
                 inference_task = inference_tasks[inference_task_id]
                 cur_dataset_path = os.path.join(dataset_path, inference_task)
                 
-                # 准备数据
                 train_dataset, eval_dataset, test_dataset = create_prompt_dataset(
                     -1,
                     cur_dataset_path,
@@ -266,15 +274,16 @@ def train():
                     42,
                     distributed=False
                 )
-                
+                # set the label for router training
                 train_dataset.answer_dataset = [inference_task_id for _ in train_dataset.answer_dataset]
                 all_datasets.append(train_dataset)
         else:
-            inference_task = inference_tasks[i+1]
-            inference_task_id = i+1
+            # inference_task = inference_tasks[i+1] # Revise to +1 
+            inference_task = inference_tasks[i] # Revise to +1 
+            inference_task_id = i
             cur_dataset_path = os.path.join(dataset_path, inference_task)
                 
-            # 准备数据
+            # data preparation
             train_dataset, eval_dataset, test_dataset = create_prompt_dataset(
                 -1,
                 cur_dataset_path,
@@ -282,17 +291,15 @@ def train():
                 42,
                 distributed=False
             )
-            
+            # set the label for router training
             train_dataset.answer_dataset = [inference_task_id for _ in train_dataset.answer_dataset]
             all_datasets.append(train_dataset)
         
-        # 合并数据集
         try:
             infer_dataset = torch.utils.data.ConcatDataset(all_datasets)
         except:
             infer_dataset = all_datasets[0]
 
-        # 准备数据加载器
         inf_data_collator = DataCollator(
             tokenizer,
             model=model,
@@ -311,12 +318,11 @@ def train():
         )
 
         print("***** Start Training *****")
-        # 第一次（i=0）使用初始训练函数，之后使用后续训练函数
         if i == 0:
-            # 训练前两个数据集，得到初始R矩阵
+            # Obtain original R and router
             current_R, Delta = train_initial_router(model, infer_dataloader, i)
         else:
-            # 使用前一次的R矩阵训练新的R矩阵
+            # Recursive update
             current_R, Delta = train_subsequent_router(model, infer_dataloader, i, current_R, Delta)
 
 

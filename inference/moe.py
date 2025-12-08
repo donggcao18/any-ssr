@@ -436,11 +436,12 @@ class NewSdpaAttention(LlamaSdpaAttention):
         bsz, q_len, _ = hidden_states.size()
 
         if layer_id > cut_layers - 1:
-            if active_adapters == ['0']:
-                self.q_proj._disable_adapters = True
-                self.k_proj._disable_adapters = True
-                self.v_proj._disable_adapters = True
-                self.o_proj._disable_adapters = True
+            # For maintaining general skill 
+            # if active_adapters == ['0']:
+            #     self.q_proj._disable_adapters = True
+            #     self.k_proj._disable_adapters = True
+            #     self.v_proj._disable_adapters = True
+            #     self.o_proj._disable_adapters = True
             self.q_proj.set_adapter(active_adapters)
             # self.k_proj.set_adapter(active_adapters)
             self.v_proj.set_adapter(active_adapters)

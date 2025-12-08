@@ -58,24 +58,23 @@ replace_bloom_attn_with_flash_attn()
 
 # my_peft中修改了lora相关的逻辑
 from model.Replay.LFPT5 import getInitialPrompt
-from model.Dynamic_network.PP import PP, convert_PP_model
+# from model.Dynamic_network.PP import PP, convert_PP_model
 from model.Dynamic_network.L2P import convert_L2P_model
 
 
 from params import Method2Class, AllDatasetName
 
-import debugpy
+# import debugpy
 
-try:
-    # 5678 is the default attach port in the VS Code debug configurations. Unless a host and port are specified, host defaults to 127.0.0.1
-    debugpy.listen(("localhost", 9576))
-    print("Waiting for debugger attach")
-    debugpy.wait_for_client()
-except Exception as e:
-    pass
+# try:
+#     # 5678 is the default attach port in the VS Code debug configurations. Unless a host and port are specified, host defaults to 127.0.0.1
+#     debugpy.listen(("localhost", 9576))
+#     print("Waiting for debugger attach")
+#     debugpy.wait_for_client()
+# except Exception as e:
+#     pass
 
 # TODO, check support for OPT and llama
-
 
 def parse_args():
     def list_of_strings(arg):
@@ -229,10 +228,18 @@ def main():
     else:
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
+
+        # print("Before initialization")
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         # torch.distributed.init_process_group(backend='nccl')
-        deepspeed.init_distributed()
+        
+        # print("环境变量检查:")
+        # for var in ['RANK', 'LOCAL_RANK', 'WORLD_SIZE', 'MASTER_ADDR', 'MASTER_PORT']:
+        #     print(f"  {var}: {os.environ.get(var)}")
 
+        deepspeed.init_distributed()
+        # deepspeed.init_distributed(dist_backend='nccl')
+        # print("After initialization")
     args.global_rank = torch.distributed.get_rank()
 
     ds_config = get_train_ds_config(offload=args.offload,
@@ -489,7 +496,7 @@ def main():
             for name, params in model.named_parameters():
                 if "prompt" not in name:
                     params.requires_grad=False
-                    
+    # print("Before initializing DeepSpeed")
     optimizer, lr_scheduler = get_optimizer(model)
     model, optimizer, _, lr_scheduler = deepspeed.initialize(
         model=model,
@@ -498,7 +505,7 @@ def main():
         config=ds_config,
         lr_scheduler=lr_scheduler,
         dist_init_required=True)
-
+    # print("After initializing DeepSpeed")
     if args.gradient_checkpointing:
         model.gradient_checkpointing_enable()
 

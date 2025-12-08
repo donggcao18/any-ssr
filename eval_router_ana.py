@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 from transformers.models.llama import LlamaForCausalLM
 import torch
@@ -47,9 +47,9 @@ LLAMA_ATTENTION_CLASSES = {
 }
 feature_layers = 4
 gamma = 10000
-router_weights_path = '/home/yanyue/TRACE_anyssr/router_weights'
-dataset_path = '/home/yanyue/LLM-CL-Benchmark_5000/'
-dataset_cache_path = '/home/yanyue/TRACE/outputs_router'
+router_weights_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/router_weights'
+dataset_path = '/U_PZL2023ZZ0005/rhe/dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000/'
+dataset_cache_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/outputs_router_dataset_cache'
 
 class NewLlamaForCausalLM(LlamaForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
@@ -126,7 +126,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
             return_dict=return_dict,
             cache_position=cache_position,
         )
-        # 这里由于仅取前四层，outputs应该是第四层的输出
+        # Only takes the output of first 4 layers of the model 
 
         hidden_mean = outputs[0].mean(dim=1)
 
@@ -140,23 +140,24 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
 
 def load_model_and_tokenizer(step):
     model = NewLlamaForCausalLM.from_pretrained(
-                'meta-llama/Llama-2-7b-chat-hf',
+               '/U_PZL2023ZZ0005/rhe/ICML2026/meta-llama/Llama-2-7b-chat-hf',
                 device_map="auto",
                 torch_dtype="auto",
-                task_number=step+2,
+                # task_number=step+2,
+                task_number=step+1,
                 trust_remote_code=True,
                 gamma=gamma
             )
     
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        'meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
+        '/U_PZL2023ZZ0005/rhe/ICML2026/meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
     )
 
     return model, tokenizer
 
 def load_tokenizer():
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        'meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
+        '/U_PZL2023ZZ0005/rhe/ICML2026/meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
     )
 
     return tokenizer
@@ -173,7 +174,7 @@ def train():
         with torch.no_grad():
             count = 0
             correct = 0
-            print('-----------------------start new epoch-------------------')
+            print(f'-----------------------start evaluation of step {step}-------------------')
             for steps, batch in enumerate(infer_dataloader):
                 labels = batch['gts']
                 input_ids = batch['input_ids']
@@ -190,11 +191,13 @@ def train():
             acc = correct / count
             print(f'step{step} has an acc of：{acc}')
 
-    for i in range(0, len(inference_tasks) - 1):
+    # for i in range(0, len(inference_tasks) - 1):
+    for i in range(0, len(inference_tasks)):
         model, tokenizer = load_model_and_tokenizer(i)
         tokenizer.pad_token = tokenizer.eos_token
 
-        cur_inference_tasks = inference_tasks[0:i+2]
+        # cur_inference_tasks = inference_tasks[0:i+2]
+        cur_inference_tasks = inference_tasks[0:i+1]
         all_datasets = []
         for inference_task_id in range(len(cur_inference_tasks)):    # evaluation for previous tasks in a single round
             inference_task = inference_tasks[inference_task_id]
@@ -203,7 +206,7 @@ def train():
             train, test, infer_dataset = create_prompt_dataset(
                 -1,
                 cur_dataset_path,
-                '/home/yanyue/TRACE/outputs_router',
+                dataset_cache_path,
                 42,
                 distributed=False
             )
@@ -237,12 +240,17 @@ def train():
                                         batch_size=1)
 
         # Inference !
-        print("***** Start inference *****")
+        # print("***** Start evaluation *****")
         eval_router(model, infer_dataloader, i)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     print(
-        "-----------------------------------start training---------------------------------------"
+        "-----------------------------------start router evaluation---------------------------------------"
     )
     train()

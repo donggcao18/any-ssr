@@ -1,7 +1,7 @@
 #!bin/bash
 port=$(shuf -i25000-30000 -n1)
-deepspeed --include=localhost:0 --master_port $port training/main_anamoe.py \
-   --data_path /home/yanyue/LLM-CL-Benchmark_5000/ \
+deepspeed --include=localhost:2,3 --master_port $port training/main_anamoe.py \
+   --data_path /U_PZL2023ZZ0005/rhe/dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000/ \
    --dataset_name FOMC \
    --model_name_or_path meta-llama/Llama-2-7b-chat-hf \
    --per_device_train_batch_size 1 \
@@ -19,4 +19,4 @@ deepspeed --include=localhost:0 --master_port $port training/main_anamoe.py \
    --deepspeed \
    --print_loss \
    --CL_method anamoe \
-   --output_dir /home/yanyue/TRACE/output_models/FOMC
+   --output_dir /U_PZL2023ZZ0005/rhe/Any-SSR/output_models/FOMC
