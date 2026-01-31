@@ -14,7 +14,7 @@ This is the official implementation for Any-SSR [Any-SSR: How Recursive Least Sq
 We recommend using the [Anaconda](https://anaconda.org/) to install the development environment.
 
 ```bash
-git clone --depth=1 git@https://github.com/ZHUANGHP/Any-SSR.git
+git clone --depth=1 https://github.com/ZHUANGHP/Any-SSR.git
 
 cd Any-SSR
 conda env create -f environment.yaml
