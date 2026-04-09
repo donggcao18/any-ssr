@@ -19,6 +19,9 @@ git clone --depth=1 https://github.com/ZHUANGHP/Any-SSR.git
 cd Any-SSR
 conda env create -f environment.yaml
 
+FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE pip install flash-attn==2.7.2.post1 --no-build-isolation
+
+
 ```
 ## Quick Start
 All the data after processing can be downloaded from [Trace Benchmark](https://drive.google.com/file/d/1S0SmU0WEw5okW_XvP2Ns0URflNzZq6sV/view)
