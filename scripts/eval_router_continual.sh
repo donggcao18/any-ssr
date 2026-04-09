@@ -13,6 +13,6 @@ python eval_router_ana.py \
     --dataset_path        "dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000" \
     --max_prompt_len      512 \
     --max_ans_len         256 \
-    --batch_size          64 \
+    --batch_size          1 \
     --tasks hf:CONCODE hf:CodeTrans hf:CodeSearchNet hf:BFP hf:TheVault_Csharp hf:KodCode hf:RunBugRun hf:CoST
 
