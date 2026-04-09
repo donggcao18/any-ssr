@@ -154,7 +154,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
         )
         # Only takes the output of first 4 layers of the model 
 
-        hidden_mean = outputs[0].mean(dim=1)
+        hidden_mean = outputs[0].mean(dim=1).to(self.fe.weight.device)
 
         out = self.fe(hidden_mean)
 
