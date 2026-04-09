@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+import argparse
 from transformers.models.llama import LlamaForCausalLM
 import torch
 from torch.nn import CrossEntropyLoss
@@ -28,6 +28,7 @@ from tqdm import tqdm
 from peft import get_peft_model
 
 from utils.data.data_utils import create_prompt_dataset
+from utils.data.raw_datasets import CODETASK_TASKS
 from utils.data.data_collator import DataCollator
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
@@ -39,30 +40,46 @@ LLAMA_ATTENTION_CLASSES = {
     "sdpa": LlamaSdpaAttention,
 }
 
-feature_layers = 4
-gamma = 10000
-
-# ---- configurable paths (works on Windows/Linux) ----
-router_weights_path = os.environ.get(
-    "ANYSSR_ROUTER_WEIGHTS_PATH",
-    os.path.join("output_models", "router_weights"),
-)
-dataset_path = os.environ.get(
-    "ANYSSR_DATASET_PATH",
-    os.path.join("dataset", "TRACE-Benchmark", "LLM-CL-Benchmark_5000"),
-)
-dataset_cache_path = os.environ.get(
-    "ANYSSR_DATASET_CACHE_PATH",
-    os.path.join("output_models", "outputs_router_dataset_cache"),
-)
-
-paths = [router_weights_path, dataset_cache_path]
-for path in paths:
-    os.makedirs(path, exist_ok=True)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train continual router for Any-SSR")
+    parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b-chat-hf",
+                        help="HuggingFace model name or local path")
+    parser.add_argument("--cuda_devices", type=str, default="0",
+                        help="CUDA_VISIBLE_DEVICES value (e.g. '0', '0,1')")
+    parser.add_argument("--feature_layers", type=int, default=4,
+                        help="Number of LLaMA layers to use as feature extractor")
+    parser.add_argument("--gamma", type=int, default=10000,
+                        help="Output dimension of the feature projection layer")
+    parser.add_argument("--router_weights_path", type=str,
+                        default=os.environ.get("ANYSSR_ROUTER_WEIGHTS_PATH",
+                                               os.path.join("output_models", "router_weights")),
+                        help="Directory to save router weight checkpoints")
+    parser.add_argument("--dataset_path", type=str,
+                        default=os.environ.get("ANYSSR_DATASET_PATH",
+                                               os.path.join("dataset", "TRACE-Benchmark", "LLM-CL-Benchmark_5000")),
+                        help="Root directory for local datasets")
+    parser.add_argument("--dataset_cache_path", type=str,
+                        default=os.environ.get("ANYSSR_DATASET_CACHE_PATH",
+                                               os.path.join("output_models", "outputs_router_dataset_cache")),
+                        help="Directory for dataset cache")
+    parser.add_argument("--max_prompt_len", type=int, default=512,
+                        help="Maximum prompt token length for the data collator")
+    parser.add_argument("--max_ans_len", type=int, default=256,
+                        help="Maximum answer token length for the data collator")
+    parser.add_argument("--batch_size", type=int, default=1,
+                        help="DataLoader batch size")
+    parser.add_argument("--rls_lambda", type=float, default=100.0,
+                        help="Regularisation coefficient for the initial RLS matrix inversion")
+    parser.add_argument("--tasks", type=str, nargs="+",
+                        default=None,
+                        help="Ordered list of task identifiers. Use 'hf:<name>' for HuggingFace datasets "
+                             "or a plain name for local datasets under --dataset_path. "
+                             "Defaults to the 8 coding tasks if omitted.")
+    return parser.parse_args()
 
 class NewLlamaForCausalLM(LlamaForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
-    def __init__(self, config, task_number, gamma):
+    def __init__(self, config, task_number, gamma, feature_layers=4):
         super().__init__(config)
         self.model = LlamaModel(config)
         self.vocab_size = config.vocab_size
@@ -145,28 +162,30 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer():
+def load_model_and_tokenizer(args):
     model = NewLlamaForCausalLM.from_pretrained(
-                'meta-llama/Llama-2-7b-chat-hf',
+                args.model,
                 device_map="auto",
                 torch_dtype="auto",
-                task_number=8,
+                task_number=len(args.tasks),
                 trust_remote_code=True,
-                gamma=10000
+                gamma=args.gamma,
+                feature_layers=args.feature_layers,
             )
     
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        'meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
+        args.model, trust_remote_code=True
     )
 
     return model, tokenizer
 
-def train():
-    num_epochs = 1
-    max_length = 150
-
-    model, tokenizer = load_model_and_tokenizer()
+def train(args):
+    model, tokenizer = load_model_and_tokenizer(args)
     tokenizer.pad_token = tokenizer.eos_token
+
+    router_weights_path = args.router_weights_path
+    dataset_path = args.dataset_path
+    dataset_cache_path = args.dataset_cache_path
 
     for name, param in model.named_parameters():
         if "cls_head" not in name:
@@ -175,16 +194,7 @@ def train():
             print(1)
 
     # Task order (must match your downstream inference order)
-    inference_tasks = [
-        "hf:CONCODE",
-        "hf:CodeTrans",
-        "hf:CodeSearchNet",
-        "hf:BFP",
-        "hf:TheVault_Csharp",
-        "hf:KodCode",
-        "hf:RunBugRun",
-        "hf:CoST",
-    ]
+    inference_tasks = args.tasks
     import numpy as np
 
     def train_initial_router(model, infer_dataloader, step):
@@ -217,7 +227,7 @@ def train():
             
             print('Calculating Reverse')
 
-            R = np.mat(auto_cor.cpu().numpy() + 100 * np.eye(gamma)).I
+            R = np.mat(auto_cor.cpu().numpy() + args.rls_lambda * np.eye(args.gamma)).I
             R_tensor = torch.tensor(R).float().cuda(non_blocking=True).cpu()
             Delta = R_tensor @ crs_cor.cpu()
             
@@ -323,8 +333,8 @@ def train():
             tokenizer,
             model=model,
             padding="longest",
-            max_prompt_len=512,
-            max_ans_len=256,
+            max_prompt_len=args.max_prompt_len,
+            max_ans_len=args.max_ans_len,
             pad_to_multiple_of=8,
             inference=True
         )
@@ -333,7 +343,7 @@ def train():
             infer_dataset,
             collate_fn=inf_data_collator,
             sampler=infer_sampler,
-            batch_size=1
+            batch_size=args.batch_size
         )
 
         print("***** Start Training *****")
@@ -346,6 +356,18 @@ def train():
 
 
 if __name__ == "__main__":
+    args = parse_args()
+
+    # Apply CUDA device selection before any CUDA calls
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_devices
+
+    # Default task list — sourced from CODETASK_TASKS in raw_datasets.py
+    if not hasattr(args, "tasks") or args.tasks is None:
+        args.tasks = CODETASK_TASKS
+
+    os.makedirs(args.router_weights_path, exist_ok=True)
+    os.makedirs(args.dataset_cache_path, exist_ok=True)
+
     logging.basicConfig(
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         level=logging.INFO,
@@ -354,4 +376,4 @@ if __name__ == "__main__":
     print(
         "-----------------------------------start training---------------------------------------"
     )
-    train()
+    train(args)

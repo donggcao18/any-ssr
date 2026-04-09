@@ -7,6 +7,23 @@ from torch.utils.data import Subset
 import re
 import os
 
+CODETASK_HF_REPO = "dongg18/CODETASK"
+
+# Exact subfolder names in dongg18/CODETASK — must match the `name=` arg to load_dataset.
+CODETASK_TASK_NAMES = [
+    "BFP",
+    "CONCODE",
+    "CoST",
+    "CodeSearchNet",
+    "CodeTrans",
+    "KodCode",
+    "RunBugRun",
+    "TheVault_Csharp",
+]
+
+# Convenience: same names with the hf: prefix used throughout the codebase.
+CODETASK_TASKS = [f"hf:{t}" for t in CODETASK_TASK_NAMES]
+
 
 # 只保留 prompt 和 train answer
 
@@ -79,6 +96,64 @@ class AnthropichhrlhfDataset(PromptRawDataset):
     def get_prompt_and_answer(self, sample):
         return sample['rejected']
 
+
+
+class CODETASKHFDataset(PromptRawDataset):
+    """Adapter for dongg18/CODETASK on HuggingFace.
+
+    Each config (BFP, CONCODE, CoST, …) maps 1-to-1 to an `hf:<name>` task.
+    Schema: columns `input` (prompt) and `output` (answer).
+
+    Usage:
+        dataset_name = "hf:BFP"   →  loads dongg18/CODETASK with name="BFP"
+    """
+
+    def __init__(self, output_path, seed, local_rank, dataset_name):
+        # Skip PromptRawDataset.__init__ to avoid loading Anthropic dataset.
+        self.output_path = output_path
+        self.seed = seed
+        self.local_rank = local_rank
+
+        if not dataset_name.startswith("hf:"):
+            raise ValueError(
+                f"CODETASKHFDataset expects dataset_name like 'hf:BFP', got: {dataset_name}"
+            )
+        self.task = dataset_name.split(":", 1)[1]  # e.g. "BFP"
+        if self.task not in CODETASK_TASK_NAMES:
+            raise ValueError(
+                f"Unknown CODETASK task '{self.task}'. "
+                f"Valid tasks: {CODETASK_TASK_NAMES}"
+            )
+        self.dataset_name = dataset_name
+        self.dataset_name_clean = f"codetask_{self.task}"
+
+        # Lazily loaded splits.
+        self._splits = {}
+
+    def _load_split(self, split: str):
+        if split in self._splits:
+            return self._splits[split]
+        ds = load_dataset(CODETASK_HF_REPO, name=self.task, split=split)
+        self._splits[split] = ds
+        return ds
+
+    def get_train_data(self):
+        return self._load_split("train")
+
+    def get_eval_data(self):
+        return self._load_split("validation")
+
+    def get_test_data(self):
+        return self._load_split("test")
+
+    def get_prompt(self, sample):
+        return sample["input"]
+
+    def get_answer(self, sample):
+        return sample["output"]
+
+    def get_prompt_and_answer(self, sample):
+        return sample["input"] + "\n" + sample["output"]
 
 
 class LocalJsonFileDataset(PromptRawDataset):
