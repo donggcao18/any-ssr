@@ -199,8 +199,9 @@ def train(args):
     import numpy as np
 
     def eval_router(model, infer_dataloader, step):
-        fe_weight = torch.load(f'{router_weights_path}/step{step}_fe_weight.pth', map_location=model.device).to(torch.float16)
-        classifier_weight = torch.load(f'{router_weights_path}/step{step}_router_weight.pth', map_location=model.device).transpose(0, 1).to(torch.float16)
+        model_dtype = next(model.parameters()).dtype
+        fe_weight = torch.load(f'{router_weights_path}/step{step}_fe_weight.pth', map_location=model.device).to(model_dtype)
+        classifier_weight = torch.load(f'{router_weights_path}/step{step}_router_weight.pth', map_location=model.device).transpose(0, 1).to(model_dtype)
         model.cls_head.weight = torch.nn.Parameter(classifier_weight)
         model.fe.weight = torch.nn.Parameter(fe_weight)
         with torch.no_grad():
