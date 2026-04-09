@@ -168,7 +168,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
 def load_model_and_tokenizer(step, args):
     model = NewLlamaForCausalLM.from_pretrained(
         args.model,
-        device_map="auto",
+        device_map="cuda:0",
         torch_dtype="auto",
         task_number=step + 1,
         trust_remote_code=True,
