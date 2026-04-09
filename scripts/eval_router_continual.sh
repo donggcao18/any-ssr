@@ -5,7 +5,7 @@ export HF_DATASETS_CACHE=./.cache
 
 python eval_router_ana.py \
     --model               "codellama/CodeLlama-7b-hf" \
-    --cuda_devices        "0,1" \
+    --cuda_devices        "0" \
     --feature_layers      4 \
     --gamma               10000 \
     --router_weights_path "output_models/router_weights" \
