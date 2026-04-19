@@ -87,9 +87,6 @@ class DataCollator:
     # support decoder-only models for left padding
     def decoder_call(self, batch, return_tensors):
         # to fix the bug
-        # HF Dataset default collation produces dict-of-lists; convert to list-of-dicts
-        if isinstance(batch, dict):
-            batch = [dict(zip(batch.keys(), vals)) for vals in zip(*batch.values())]
         sources = []
         gts = []
         tokenized_sources = []

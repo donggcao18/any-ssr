@@ -299,7 +299,7 @@ def create_codetask_dataset(dataset_name, seed, num_train, num_eval, num_test):
             ds = ds.shuffle(seed=seed).select(range(int(n)))
         data_dict[split] = ds
 
-    return data_dict
+    return data_dict['train'], data_dict['validation'], data_dict['test']
 
 
 # step 1
