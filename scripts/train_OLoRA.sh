@@ -17,6 +17,9 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --zero_stage 2 \
    --deepspeed \
    --print_loss \
+   --num_train 100 \
+   --num_eval 50 \
+   --num_test 50 \
    --learning_rate 1e-4 \
    --CL_method O-LoRA \
    --output_dir ./output_models/OLoRA_Qwen2.5-Coder-1.5B \
