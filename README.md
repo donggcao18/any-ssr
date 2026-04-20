@@ -40,6 +40,12 @@ mkdir logs/
 bash scripts/train_LwF.sh 2>&1 | tee logs/train_Lwf.log
 ```
 
+To use PP
+```bash
+mkdir logs/
+bash scripts/train_PP.sh 2>&1 | tee logs/train_PP.log
+```
+
 
 <div align="center">
 <img src="imgs/infer_results.png" width="800px">
