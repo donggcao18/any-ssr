@@ -19,7 +19,37 @@ import argparse
 import os
 import math
 import sys
+import datetime
 from tqdm import tqdm
+
+
+class TeeLogger:
+    """Duplicates stdout writes to both the terminal and a log file."""
+    def __init__(self, filepath):
+        self._terminal = sys.__stdout__
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        self._log = open(filepath, 'a', buffering=1)  # line-buffered
+        self._log.write(f"\n{'='*60}\n")
+        self._log.write(f"Training started at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        self._log.write(f"{'='*60}\n")
+        self._log.flush()
+
+    def write(self, message):
+        self._terminal.write(message)
+        self._log.write(message)
+
+    def flush(self):
+        self._terminal.flush()
+        self._log.flush()
+
+    def close(self):
+        self._log.close()
+
+    def __del__(self):
+        try:
+            self._log.close()
+        except Exception:
+            pass
 
 import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -295,6 +325,14 @@ def main():
         # deepspeed.init_distributed(dist_backend='nccl')
         # print("After initialization")
     args.global_rank = torch.distributed.get_rank()
+
+    # Set up file logging (rank 0 only)
+    if args.global_rank == 0 and args.output_dir is not None:
+        os.makedirs(args.output_dir, exist_ok=True)
+        log_path = os.path.join(args.output_dir, "training.log")
+        sys.stdout = TeeLogger(log_path)
+        print(f"Logging to {log_path}")
+        print(f"Args: {args}")
 
     ds_config = get_train_ds_config(offload=args.offload,
                                     stage=args.zero_stage,

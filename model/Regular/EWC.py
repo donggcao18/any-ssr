@@ -6,6 +6,7 @@ import torch.utils.data
 from tqdm.auto import tqdm
 from torch import nn
 from model.base_model import CL_Base_Model
+from utils.utils import print_rank_0
 
 
 
@@ -96,7 +97,7 @@ class EWC(CL_Base_Model):
                        i_task,
                        epochs=40):
 
-        print('task = ', task)
+        print_rank_0(f'task = {task}', self.args.global_rank)
 
         dataloader_train = self.train_task_list[task]
         self.train_length = len(dataloader_train)
@@ -105,7 +106,7 @@ class EWC(CL_Base_Model):
 
 
         for epoch in range(epochs):
-            print(epoch)
+            print_rank_0(f'Epoch {epoch+1}/{epochs}', self.args.global_rank)
             self.model.train()
 
             for step, batch in enumerate(tqdm(dataloader_train)):
