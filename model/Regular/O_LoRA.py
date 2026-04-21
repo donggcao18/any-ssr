@@ -8,6 +8,7 @@ from tqdm import tqdm
 from model.base_model import CL_Base_Model
 from utils.utils import print_rank_0, to_device, get_all_reduce_mean
 from utils.model.model_utils import get_transformer_layers
+import wandb
 
 class O_LoRA(CL_Base_Model):
     def __init__(self,
@@ -40,6 +41,7 @@ class O_LoRA(CL_Base_Model):
         #### TRAIN ####
         total_steps = epochs * len(train_dataloader)
         progress_bar = tqdm(total=total_steps, leave=True, disable=(self.args.global_rank != 0))
+        global_step = 0
         for epoch in range(epochs):
             print_rank_0(
                 f"Beginning of Epoch {epoch+1}/{epochs}, Total Micro Batches {len(train_dataloader)}",
@@ -47,6 +49,7 @@ class O_LoRA(CL_Base_Model):
             self.model.train()
 
             for step, batch in enumerate(train_dataloader):
+                global_step += 1
                 del batch['sources']
                 batch = to_device(batch, self.device)
                 outputs = self.model(**batch, use_cache=False)
@@ -70,6 +73,12 @@ class O_LoRA(CL_Base_Model):
                 loss = loss + orthogonal_loss * self.lamda_1 + l2_loss * self.lamda_2
                 ######################################################################
                 # Update the description to include current step and loss, if needed
+                wandb.log({
+                    "global_step": global_step,
+                    "task_id": i_task,
+                    "train/loss": loss.item(),
+                    "train/task_id": i_task,
+                })
                 if self.args.global_rank == 0:
                     # Update the progress bar
                     progress_bar.update(1)
@@ -91,6 +100,14 @@ class O_LoRA(CL_Base_Model):
                 max_ans_len=int(self.args.max_ans_len[i_task]),
             )
             print_rank_0(f"[task={task}] validation result: {eval_result}", self.args.global_rank)
+            wandb.log({
+                "epoch": epoch + 1,
+                "task_id": i_task,
+                "eval_epoch/task_id": i_task,
+                "eval_epoch/exact_match": eval_result["exact_match"],
+                "eval_epoch/bleu": eval_result["bleu"],
+                "eval_epoch/codebleu": eval_result["codebleu"],
+            })
 
         def split_string_by_first_num(s):  
             for i, c in enumerate(s):  
@@ -143,21 +160,12 @@ class O_LoRA(CL_Base_Model):
             if flag == 4:
                 layer_id += 1
                 flag = 0
-        for k in state_dict:
-            if "loranew_A" in k:
-                nn.init.kaiming_uniform_(state_dict[k], a=math.sqrt(5))
-            elif "loranew_B" in k:
-                nn.init.zeros_(state_dict[k])
-        self.model.load_state_dict(state_dict)
-
-        #### RESET ####
-        for name, param in self.model.named_parameters():
-            if name.find("loranew_") != -1:
-                param.requires_grad = True
-            elif name.find("lora_") != -1:
-                param.requires_grad = False
 
         #### TEST ####
+        log_dict = {
+            "task_id": i_task,
+        }
+
         trained_task_name = str(task).replace("/", "_").replace(":", "_")
         prediction_dir = os.path.join("predictions", f"{i_task}-{trained_task_name}")
         if self.args.global_rank == 0:
@@ -173,6 +181,9 @@ class O_LoRA(CL_Base_Model):
                 return_predictions=True,
             )
             print_rank_0(f"[task={eval_task}] validation result: {test_result}", self.args.global_rank)
+            log_dict[f"eval_task/seen_task_{eval_task}/exact_match"] = test_result["exact_match"]
+            log_dict[f"eval_task/seen_task_{eval_task}/bleu"] = test_result["bleu"]
+            log_dict[f"eval_task/seen_task_{eval_task}/codebleu"] = test_result["codebleu"]
 
             if self.args.global_rank == 0:
                 eval_task_name = str(eval_task).replace("/", "_").replace(":", "_")
@@ -180,6 +191,22 @@ class O_LoRA(CL_Base_Model):
                 with open(prediction_file, "w", encoding="utf-8") as f:
                     json.dump(prediction_rows, f, ensure_ascii=False, indent=2)
                 print_rank_0(f"Saved predictions to {prediction_file}", self.args.global_rank)
+        wandb.log(log_dict)
+
+
+        for k in state_dict:
+            if "loranew_A" in k:
+                nn.init.kaiming_uniform_(state_dict[k], a=math.sqrt(5))
+            elif "loranew_B" in k:
+                nn.init.zeros_(state_dict[k])
+        self.model.load_state_dict(state_dict)
+
+        #### RESET ####
+        for name, param in self.model.named_parameters():
+            if name.find("loranew_") != -1:
+                param.requires_grad = True
+            elif name.find("lora_") != -1:
+                param.requires_grad = False
 
         #### SAVE ####
         if self.args.output_dir is not None:

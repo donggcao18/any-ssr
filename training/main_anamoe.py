@@ -12,6 +12,7 @@
 # except Exception as e:
 #     pass
 
+from asyncio import run
 import sys
 sys.dont_write_bytecode = True
 
@@ -20,8 +21,11 @@ import os
 import math
 import sys
 import datetime
+import wandb
 from tqdm import tqdm
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class TeeLogger:
     """Duplicates stdout writes to both the terminal and a log file."""
@@ -273,10 +277,10 @@ def parse_args():
                         type=float,
                         default=0.1,
                         help='LoRA dropout')
-    parser.add_argument('--lora_target_modules',
-                        type=list_of_strings,
-                        default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
-                        help='LoRA target modules')
+    # parser.add_argument('--lora_target_modules',
+    #                     type=list_of_strings,
+    #                     default="q_proj,v_proj",
+    #                     help='LoRA target modules')
     # added by wangxiao
     parser.add_argument('--CL_method',
                 default=None,
@@ -298,13 +302,48 @@ def parse_args():
                         type=float,
                         default=1.2,
                         help='Repetition penalty for generation.')
+    parser.add_argument('--run_name',
+                    type=str,
+                    required=True,
+                    help='Name of the run for wandb logging.')
+    parser.add_argument('--group_name',
+                type=str,
+                default=True,
+                help='Group name for wandb logging.')
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
     return args
 
 
 def main():
-    args = parse_args()
+    parsed_args = parse_args()
+
+    class ArgsDict(dict):
+        """Dictionary-style args with backward-compatible attribute access."""
+        __getattr__ = dict.get
+
+        def __setattr__(self, key, value):
+            self[key] = value
+
+    args = ArgsDict(vars(parsed_args))
+
+
+    run = wandb.init(
+        project="CL4Code",
+        group=args.group_name,
+        job_type="train",
+        name=args.run_name,
+        config=dict(args)
+    )
+
+    run.define_metric("global_step")
+    run.define_metric("train/*", step_metric="global_step")
+
+    run.define_metric("epoch")
+    run.define_metric("eval_epoch/*", step_metric="epoch")
+
+    run.define_metric("task_id")
+    run.define_metric("eval_task/*", step_metric="task_id")
 
     if args.local_rank == -1:
         device = torch.device("cuda")
@@ -383,7 +422,7 @@ def main():
         from utils.my_peft import get_peft_model, PromptTuningInit, PromptTuningConfig, LoraConfig, TaskType
 
         peft_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM, r=args.lora_dim, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout, target_modules=args.lora_target_modules
+            task_type=TaskType.CAUSAL_LM, r=args.lora_dim, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout
         )
         model = get_peft_model(model, peft_config)
         for name, param in model.named_parameters():
