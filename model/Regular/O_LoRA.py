@@ -79,7 +79,6 @@ class O_LoRA(CL_Base_Model):
                     if "loranew_" in name:
                         l2_loss += torch.norm(param, p=2)
 
-                print_rank_0(f"orthogonal_loss: {orthogonal_loss.item()}; l2_loss: {l2_loss.item()}; accuracy_loss: {loss.item()}; λ1: {self.lamda_1}; λ2: {self.lamda_2}", self.args.global_rank)
                 loss = loss + orthogonal_loss * self.lamda_1 + l2_loss * self.lamda_2
                 ######################################################################
                 # Update the description to include current step and loss, if needed
@@ -90,11 +89,7 @@ class O_LoRA(CL_Base_Model):
                     progress_bar.set_description(description, refresh=False)
                     logging_steps = getattr(self.args, 'logging_steps', 10)
                     if global_step % logging_steps == 0:
-                        _log(self.log_file,
-                            f"[train] task={task} epoch={epoch+1} step={global_step} "
-                            f"loss={loss.item():.6f} accuracy_loss={outputs.loss.item():.6f} "
-                            f"orthogonal_loss={orthogonal_loss.item():.6f} l2_loss={l2_loss.item():.6f}"
-                        )
+                        print_rank_0(f"orthogonal_loss: {orthogonal_loss.item()}; l2_loss: {l2_loss.item()}; accuracy_loss: {outputs.loss.item()}; λ1: {self.lamda_1}; λ2: {self.lamda_2}", self.args.global_rank)
 
                 self.model.backward(loss)
                 # Correct gradient accumulation steps are handled withing the deepspeed engine's backward call.
@@ -111,13 +106,6 @@ class O_LoRA(CL_Base_Model):
                 max_ans_len=int(self.args.max_ans_len[i_task]),
             )
             print_rank_0(f"[task={task}] validation result: {eval_result}", self.args.global_rank)
-            if self.args.global_rank == 0:
-                _log(self.log_file,
-                    f"[eval_epoch] task={task} epoch={epoch+1} "
-                    f"exact_match={eval_result['exact_match']:.4f} "
-                    f"bleu={eval_result['bleu']:.4f} "
-                    f"codebleu={eval_result['codebleu']:.4f}"
-                )
 
         #### COMBINE lora with lora_new and INITIALIZE lora_new ####
         flag = 0
@@ -195,12 +183,6 @@ class O_LoRA(CL_Base_Model):
                 with open(prediction_file, "w", encoding="utf-8") as f:
                     json.dump(prediction_rows, f, ensure_ascii=False, indent=2)
                 print_rank_0(f"Saved predictions to {prediction_file}", self.args.global_rank)
-                _log(self.log_file,
-                    f"[eval_task] trained_on={task} eval_task={eval_task} "
-                    f"exact_match={test_result['exact_match']:.4f} "
-                    f"bleu={test_result['bleu']:.4f} "
-                    f"codebleu={test_result['codebleu']:.4f}"
-                )
 
 
         #### RESET ####
