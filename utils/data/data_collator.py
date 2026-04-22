@@ -101,7 +101,8 @@ class DataCollator:
             gts.append(label)
 
             # Wrap instruction in input/output template to steer generation format.
-            formatted_prompt = f"input: {instruction}\noutput: "
+            # formatted_prompt = f"input: {instruction}\noutput: "
+            formatted_prompt = instruction
 
             if not self.inference:
                 # Tokenize prompt and label separately — no BOS (Qwen has none),
