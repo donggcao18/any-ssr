@@ -25,6 +25,6 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 4 \
    --temperature 0.2 \
    --top_p 0.95 \
-   --repetition_penalty 1.2 \
+   --repetition_penalty 1 \
    --run_name run_1 \
    --group_name OLoRA_Qwen2.5-Coder-1.5B_with_instruction_pool \
