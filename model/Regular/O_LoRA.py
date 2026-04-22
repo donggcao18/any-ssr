@@ -88,11 +88,13 @@ class O_LoRA(CL_Base_Model):
                     progress_bar.update(1)
                     description = f"Epoch {epoch+1}, Step {step}, Loss: {loss.item():.4f}"
                     progress_bar.set_description(description, refresh=False)
-                    _log(self.log_file,
-                        f"[train] task={task} epoch={epoch+1} step={global_step} "
-                        f"loss={loss.item():.6f} accuracy_loss={outputs.loss.item():.6f} "
-                        f"orthogonal_loss={orthogonal_loss.item():.6f} l2_loss={l2_loss.item():.6f}"
-                    )
+                    logging_steps = getattr(self.args, 'logging_steps', 10)
+                    if global_step % logging_steps == 0:
+                        _log(self.log_file,
+                            f"[train] task={task} epoch={epoch+1} step={global_step} "
+                            f"loss={loss.item():.6f} accuracy_loss={outputs.loss.item():.6f} "
+                            f"orthogonal_loss={orthogonal_loss.item():.6f} l2_loss={l2_loss.item():.6f}"
+                        )
 
                 self.model.backward(loss)
                 # Correct gradient accumulation steps are handled withing the deepspeed engine's backward call.

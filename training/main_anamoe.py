@@ -260,6 +260,10 @@ def parse_args():
     parser.add_argument('--print_loss',
                         action='store_true',
                         help='Prints loss at each step.')
+    parser.add_argument('--logging_steps',
+                        type=int,
+                        default=100,
+                        help='Log training loss every N steps.')
     # LoRA related arguments
     parser.add_argument('--lora_dim',
                         type=int,
