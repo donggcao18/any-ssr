@@ -32,8 +32,8 @@ class CL_Base_Model:
         self.args = args
         self.generation_config = GenerationConfig(
             do_sample=self.args.do_sample,
-            temperature=self.args.temperature,
-            top_p=self.args.top_p,
+            temperature=self.args.temperature if self.args.do_sample else None,
+            top_p=self.args.top_p if self.args.do_sample else None,
             repetition_penalty=self.args.repetition_penalty,
         )
 
