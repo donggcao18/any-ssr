@@ -28,6 +28,3 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --repetition_penalty 1.2 \
    --run_name run_1 \
    --group_name OLoRA_Qwen2.5-Coder-1.5B_with_instruction_pool \
-   --num_train 40 \
-   --num_eval 4 \
-   --num_test 4 \
