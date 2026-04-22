@@ -558,7 +558,7 @@ def main():
                                     sampler=train_sampler,
                                     batch_size=args.per_device_train_batch_size)
         eval_dataloader = DataLoader(eval_dataset,
-                                    collate_fn=data_collator,
+                                    collate_fn=inf_data_collator,
                                     sampler=eval_sampler,
                                     batch_size=args.per_device_eval_batch_size)
         test_dataloader = DataLoader(test_dataset,
