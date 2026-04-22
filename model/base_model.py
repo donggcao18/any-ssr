@@ -201,6 +201,7 @@ class CL_Base_Model:
         eval_dataloader = self.eval_task_list[task]
         total_steps = epochs * len(train_dataloader)
         progress_bar = tqdm(total=total_steps, leave=True, disable=(self.args.global_rank != 0))
+        global_step = 0
         for epoch in range(epochs):
             print_rank_0(
                 f"Beginning of Epoch {epoch+1}/{epochs}, Total Micro Batches {len(train_dataloader)}",
@@ -208,6 +209,7 @@ class CL_Base_Model:
             self.model.train()
 
             for step, batch in enumerate(train_dataloader):
+                global_step += 1
                 del batch['sources']
                 batch = to_device(batch, device)
                 outputs = self.model(**batch, use_cache=False)
@@ -218,19 +220,25 @@ class CL_Base_Model:
                     progress_bar.update(1)
                     description = f"Epoch {epoch+1}, Step {step}, Loss: {loss.item():.4f}"
                     progress_bar.set_description(description, refresh=False)
+                    logging_steps = getattr(self.args, 'logging_steps', 10)
+                    if global_step % logging_steps == 0:
+                        print_rank_0(f"task={task} epoch={epoch+1} step={global_step} loss={loss.item():.6f}", self.args.global_rank)
 
                 self.model.backward(loss)
                 # Correct gradient accumulation steps are handled withing the deepspeed engine's backward call.
                 self.model.step()
 
-
-            # Evaluate perplexity on the validation set.
-            # print_rank_0(
-            #     f"***** Evaluating perplexity, Epoch {epoch+1}/{epochs} *****",
-            #     self.args.global_rank)
-            # perplexity = self.perplexity_evaluation(eval_dataloader, device)
-            # print_rank_0(f"ppl: {perplexity}", self.args.global_rank)
-            # self.model.tput_timer.update_epoch_count()
+            # Validate on eval split after each epoch
+            print_rank_0(
+                f"***** Evaluating generation metrics, Epoch {epoch+1}/{epochs} on task {task} *****",
+                self.args.global_rank)
+            eval_result = self.task_generation_evaluation(
+                task,
+                eval_dataloader,
+                device,
+                max_ans_len=self._resolve_max_ans_len(i_task),
+            )
+            print_rank_0(f"[task={task}] validation result: {eval_result}", self.args.global_rank)
     
     
     def train_continual(self):
