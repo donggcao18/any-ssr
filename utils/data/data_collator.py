@@ -100,11 +100,14 @@ class DataCollator:
             sources.append(instruction)
             gts.append(label)
 
+            # Wrap instruction in input/output template to steer generation format.
+            formatted_prompt = f"input: {instruction}\noutput: "
+
             if not self.inference:
                 # Tokenize prompt and label separately — no BOS (Qwen has none),
                 # EOS appended only at the end of the target.
                 tokenize_prompt = self.tokenize(
-                    instruction, self.max_prompt_len, add_bos_token=False, add_eos_token=False
+                    formatted_prompt, self.max_prompt_len, add_bos_token=False, add_eos_token=False
                 )
                 tokenize_label = self.tokenize(
                     label, self.max_ans_len, add_bos_token=False, add_eos_token=True
@@ -145,7 +148,7 @@ class DataCollator:
                         instruction = task_prompt + instruction
 
                 # No BOS for inference either; left-pad with pad_token_id below.
-                tokenize_source = self.tokenize(instruction, limit_len, add_bos_token=False, add_eos_token=False)
+                tokenize_source = self.tokenize(formatted_prompt, limit_len, add_bos_token=False, add_eos_token=False)
                 tokenized_sources.append(tokenize_source)
 
             if len(tokenized_sources[-1]["input_ids"]) > actual_max_len:
