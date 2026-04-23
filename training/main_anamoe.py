@@ -468,7 +468,7 @@ def main():
 
         names = [name for name, param in model.named_parameters()]
 
-        start = 4
+        start = 0
         end = 28  # Qwen2.5-Coder-1.5B has 28 layers (0-27)
         # filtered_names = [name for name in names if start <= int(name.split('.')[2]) < end]
 
