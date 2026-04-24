@@ -16,7 +16,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 4 \
    --max_prompt_len 320 \
    --max_ans_len 256 \
-   --learning_rate 1e-5 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
