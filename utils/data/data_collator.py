@@ -239,7 +239,7 @@ class DataCollator:
                 combined = {
                     "input_ids": tokenize_prompt["input_ids"] + tokenize_label["input_ids"],
                     "attention_mask": tokenize_prompt["attention_mask"] + tokenize_label["attention_mask"],
-                    "labels":  tokenize_label["input_ids"].copy() + [-100] * prompt_len,
+                    "labels":  [-100] * prompt_len + tokenize_label["input_ids"].copy() ,
                 }
                 tokenized_sources.append(combined)
             else:
