@@ -237,9 +237,9 @@ class DataCollator:
                 )
                 prompt_len = len(tokenize_prompt["input_ids"])
                 combined = {
-                    "input_ids": tokenize_prompt["input_ids"] ,
+                    "input_ids": tokenize_prompt["input_ids"] + tokenize_label["input_ids"],
                     "attention_mask": tokenize_prompt["attention_mask"] + tokenize_label["attention_mask"],
-                    "labels": [-100] * prompt_len + tokenize_label["input_ids"].copy(),
+                    "labels":  tokenize_label["input_ids"].copy() + [-100] * prompt_len,
                 }
                 tokenized_sources.append(combined)
             else:
