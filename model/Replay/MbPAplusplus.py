@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
 generation_config = GenerationConfig(
     temperature=0.1,
-    do_sample=True,
+    do_sample=False,
     num_return_sequences=1
 )
 
@@ -236,6 +236,7 @@ class MbPAplusplus(CL_Base_Model):
             self.save_model(i_task)
             if self.args.global_rank<=0:
                 self.evaluate(i_task)
+        self.test_all_tasks_and_save_predictions()
         
     
     def evaluate(self, round):
@@ -296,7 +297,7 @@ class MbPAplusplus(CL_Base_Model):
                                                     eos_token_id=self.tokenizer.eos_token_id,
                                                     pad_token_id=self.tokenizer.unk_token_id,
                                                     temperature=0.1,
-                                                    do_sample=True,
+                                                    do_sample=False,
                                                     num_return_sequences=1,
                                                     use_cache=True
                                                     )
