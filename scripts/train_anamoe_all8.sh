@@ -24,7 +24,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 320 \
    --max_ans_len 256 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -52,7 +52,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 256 \
    --max_ans_len 128 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -80,7 +80,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 320 \
    --max_ans_len 150 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -110,7 +110,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 130 \
    --max_ans_len 120 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -140,7 +140,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 256 \
    --max_ans_len 128 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -168,7 +168,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 256 \
    --max_ans_len 128 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -196,7 +196,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 256 \
    --max_ans_len 128 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -225,7 +225,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --gradient_accumulation_steps 2 \
    --max_prompt_len 512 \
    --max_ans_len 300 \
-   --learning_rate 2e-4 \
+   --learning_rate 1e-4 \
    --num_train_epochs 3 \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
