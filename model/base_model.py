@@ -232,13 +232,23 @@ class CL_Base_Model:
             print_rank_0(
                 f"***** Evaluating generation metrics, Epoch {epoch+1}/{epochs} on task {task} *****",
                 self.args.global_rank)
-            eval_result = self.task_generation_evaluation(
+            eval_result, eval_predictions = self.task_generation_evaluation(
                 task,
                 eval_dataloader,
                 device,
                 max_ans_len=self._resolve_max_ans_len(i_task),
+                return_predictions=True,
             )
             print_rank_0(f"[task={task}] validation result: {eval_result}", self.args.global_rank)
+
+            if self.args.global_rank == 0 and self.args.output_dir is not None:
+                safe_task_name = str(task).replace("/", "_").replace(":", "_")
+                pred_dir = os.path.join(self.args.output_dir, "predictions", f"eval-epoch{epoch+1}")
+                os.makedirs(pred_dir, exist_ok=True)
+                pred_file = os.path.join(pred_dir, f"{safe_task_name}.json")
+                with open(pred_file, "w", encoding="utf-8") as f:
+                    json.dump({"metrics": eval_result, "predictions": eval_predictions}, f, ensure_ascii=False, indent=2)
+                print_rank_0(f"Saved eval predictions to {pred_file}", self.args.global_rank)
     
     
     def train_continual(self):
