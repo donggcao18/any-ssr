@@ -1,7 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0,1
 
 set -euo pipefail
 
@@ -28,5 +28,6 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --output_dir ./output_models/anamoe/CodeTrans \
    --run_name anamoe_CodeTrans \
    --group_name anamoe_CodeTrans \
+   --logging_steps 10 \
    # --weight_decay 0. \
 
