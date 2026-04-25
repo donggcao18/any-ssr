@@ -300,7 +300,7 @@ def parse_args():
                         help='Top-p for generation.')
     parser.add_argument('--repetition_penalty',
                         type=float,
-                        default=1.2,
+                        default=1.0,
                         help='Repetition penalty for generation.')
     parser.add_argument('--run_name',
                     type=str,

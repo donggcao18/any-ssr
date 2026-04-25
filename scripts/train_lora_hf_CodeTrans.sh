@@ -13,7 +13,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --dataset_name CodeTrans \
    --per_device_train_batch_size 8 \
    --per_device_eval_batch_size 8 \
-   --gradient_accumulation_steps 4 \
+   --gradient_accumulation_steps 2 \
    --max_prompt_len 320 \
    --max_ans_len 256 \
    --learning_rate 1e-4 \
