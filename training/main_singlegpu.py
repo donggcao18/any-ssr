@@ -546,6 +546,7 @@ def main():
                 if "prompt" not in name:
                     params.requires_grad=False
                     
+    model.to(device)
     optimizer, lr_scheduler = get_optimizer(model)
     # model, optimizer, _, lr_scheduler = deepspeed.initialize(
     #     model=model,
