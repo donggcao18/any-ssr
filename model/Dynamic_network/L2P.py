@@ -46,7 +46,7 @@ def convert_L2P_model(model, args):
 
 
 class L2P(CL_Base_Model):
-    
+
     def __init__(self, model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args,
                  embedding_key='mean',
                  top_k=3,
@@ -54,14 +54,21 @@ class L2P(CL_Base_Model):
                  pull_constraint_coeff=0.5
                  ):
         super().__init__(model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
-        
+
+        # Device (match Regular methods like `O_LoRA`)
+        if self.args.local_rank == -1:
+            self.device = torch.device("cuda")
+        else:
+            torch.cuda.set_device(self.args.local_rank)
+            self.device = torch.device("cuda", self.args.local_rank)
+
         self.embed_dim = self.args.embed_tokens_dim
         self.embed_tokens = self.args.embed_tokens
         self.embedding_key = embedding_key
         self.top_k = top_k
         self.batchwise_prompt = batchwise_prompt
         self.pull_constraint_coeff = pull_constraint_coeff
-        
+
         # use mean of prompt as key
         # only compatible with prompt, not prefix
         prompt_mean = torch.mean(self.model.model.prompt, dim=1)
@@ -139,50 +146,55 @@ class L2P(CL_Base_Model):
     
     
     def train_one_task(self, task, i_task, epochs):
-        print('task = ', task)
+        print_rank_0(f"***** Training on task {task} *****", self.args.global_rank)
 
-        dataloader_train = self.train_task_list[task]
-        self.train_length = len(dataloader_train)
-        total_steps = self.args.num_train_epochs * len(dataloader_train)
+        train_dataloader = self.train_task_list[task]
+        total_steps = epochs * len(train_dataloader)
         progress_bar = tqdm(total=total_steps, leave=True, disable=(self.args.global_rank != 0))
 
-
         for epoch in range(epochs):
-            print(epoch)
-            self.model.train()
+            print_rank_0(
+                f"Beginning of Epoch {epoch+1}/{epochs}, Total Micro Batches {len(train_dataloader)}",
+                self.args.global_rank,
+            )
 
-            for step, batch in enumerate(tqdm(dataloader_train)):
+            self.model.train()
+            for step, batch in enumerate(tqdm(train_dataloader)):
                 del batch['sources']
-                batch = {k:batch[k].to('cuda') for k in batch}
+                batch = {k: batch[k].to(self.device) for k in batch}
                 loss = self.train_step(batch)
-                
+
                 if self.args.global_rank == 0:
-                    # Update the progress bar
                     progress_bar.update(1)
                     description = f"Epoch {epoch+1}, Step {step}, Loss: {loss.item():.4f}"
                     progress_bar.set_description(description, refresh=False)
-                self.model.backward(loss, retain_graph=True)
-                # for n, lp in self.model.named_parameters():
-                #     # 1. gradient lookup
-                #     # For zero1 and zero2, gradient lookup must be called after `backward` and before `step`
-                #     # For zero3, gradient lookup must be called after `backward`
-                #     if "prompt" in n:
-                #         hp_grad = safe_get_full_grad(lp)
-                #         if self.args.global_rank == 0:
 
-                #             print(hp_grad)
+                self.model.backward(loss, retain_graph=True)
                 self.model.step()
-                
-                
+
+            # Validate (match O_LoRA style)
+            print_rank_0(
+                f"***** Evaluating generation metrics, Epoch {epoch+1}/{epochs} on task {task} *****",
+                self.args.global_rank,
+            )
+            self.evaluate_one_task(round=i_task, infer_task_id=i_task, task=task)
+
+    def save_model(self, i_task):
+        if self.args.output_dir is None:
+            return
+
+        if self.args.global_rank == 0:
+            save_dir = os.path.join(self.args.output_dir, str(i_task))
+            os.makedirs(save_dir, exist_ok=True)
+            self.model.save_pretrained(save_dir)
+            self.tokenizer.save_pretrained(save_dir)
+            print_rank_0(f"Sucessfully saving the final model to {save_dir}", self.args.global_rank)
+
     def evaluate(self, round, infer_task_id, task):
         self.evaluate_one_task(round,infer_task_id, task)
         
     def evaluate_one_task(self, round, infer_task_id, task):
-        if self.args.local_rank == -1:
-            device = torch.device("cuda")
-        else:
-            torch.cuda.set_device(self.args.local_rank)
-            device = torch.device("cuda", self.args.local_rank)
+        device = self.device
 
         infer_dataloader = self.test_task_list[task]
 
@@ -278,29 +290,15 @@ class L2P(CL_Base_Model):
         print_rank_0("***** Start inference *****", self.args.global_rank)
         sources_sequences, predicted_sequences, ground_truths = prediction(self.model, infer_dataloader)
 
-        # Get Accuracy/ROUGE/BLEU/...
-        # The evaluation result is stored in a dictionary. e.g. {"accuracy": .., "rouge-L": ..}
+        # Get Accuracy/ROUGE/BLEU/CodeBLEU/...
+        # Prefer the shared evaluator in `CL_Base_Model` (handles CodeBLEU/SmoothBLEU/etc. for code tasks).
         if self.args.global_rank <= 0:
-            if task == "ScienceQA":
-                evaluation_result = eval_ScienceQA.eval(predicted_sequences, ground_truths)
-            elif task == "MeetingBank":
-                evaluation_result = eval_MeetingBank.eval(predicted_sequences, ground_truths)
-            elif task == "C-STANCE":
-                evaluation_result = eval_CStance.eval(predicted_sequences, ground_truths)
-            elif task == "Papyrus-f":
-                evaluation_result = eval_PapyrusF.eval(predicted_sequences, ground_truths)
-            elif task == "Py150":
-                evaluation_result = eval_Py150.eval(predicted_sequences, ground_truths)
-            elif task == "FOMC":
-                evaluation_result = eval_FOMC.eval(predicted_sequences, ground_truths)
-            elif task == "NumGLUE-cm":
-                evaluation_result = eval_NumGLUE_cm.eval(predicted_sequences, ground_truths)
-            elif task == "NumGLUE-ds":
-                evaluation_result = eval_NumGLUE_ds.eval(predicted_sequences, ground_truths)
-            # elif task == "ToolBench":
-            #     evaluation_result = eval_ToolBench.eval(predicted_sequences, ground_truths)
-            else:
-                evaluation_result = {}
+            evaluation_result = self._task_eval_from_predictions(
+                task,
+                sources_sequences=sources_sequences,
+                predicted_sequences=predicted_sequences,
+                ground_truths=ground_truths,
+            )
 
             print("***** Saving inference results *****")
             save_inference_results(evaluation_result, sources_sequences, predicted_sequences, ground_truths, round, infer_task_id, task)
