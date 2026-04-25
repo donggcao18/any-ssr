@@ -29,5 +29,4 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --run_name anamoe_CodeTrans \
    --group_name anamoe_CodeTrans \
    --logging_steps 10 \
-   # --weight_decay 0. \
 
