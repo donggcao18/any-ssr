@@ -425,6 +425,12 @@ class PP(CL_Base_Model):
         if progressive:
             assert self.prefix_len>0 # can only do progressive prompts when prompt tuning
             print('progressive prompts')
+        print_rank_0(
+            f"[task={task}] prompt shape: {self.model.model.prompt.shape}, "
+            f"previous_prompts shape: {self.previous_prompts.shape}, "
+            f"total prefix len: {self.model.model.prompt.shape[0] + self.previous_prompts.shape[0]}",
+            self.args.global_rank,
+        )
         if self.early_stopping:
             self.best_acc = 0.0 # re-setting best acc
 
