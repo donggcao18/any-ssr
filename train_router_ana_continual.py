@@ -41,9 +41,8 @@ import torch.nn.functional as F
 
 feature_layers = 4
 gamma = 10000
-router_weights_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/router_weights'
-dataset_path = '/U_PZL2023ZZ0005/rhe/dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000/'
-dataset_cache_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/outputs_router_dataset_cache'
+router_weights_path = './output_models/router_weights'
+dataset_cache_path = './output_models/outputs_router_dataset_cache'
 paths = [router_weights_path,dataset_cache_path]
 
 for path in paths:
