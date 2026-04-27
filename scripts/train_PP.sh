@@ -24,7 +24,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --output_dir ./output_models/PP_Qwen2.5-Coder-1.5B_with_instruction_pool \
    --per_device_train_batch_size 8 \
    --per_device_eval_batch_size 16 \
-   --gradient_accumulation_steps 4 \
+   --gradient_accumulation_steps 2 \
    --num_train_epochs 3 \
    --num_eval 200 \
    --run_name run_1 \
