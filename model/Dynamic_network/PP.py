@@ -223,20 +223,40 @@ class PP(CL_Base_Model):
 
             if prompt is not None:
                 batch_size = inputs_embeds.shape[0]
-                inputs_embeds = torch.concat([prompt.repeat(batch_size, 1, 1),
-                                            inputs_embeds],
-                                            dim=1)
-                full_prefix_len = prompt.shape[0] + inputs_embeds.shape[0]
-                # Update the source mask
-                source_mask_updated = torch.concat(
-                    (
-                        batch["attention_mask"][0][0].repeat(batch_size, full_prefix_len),
-                        batch["attention_mask"]
-                    ),
-                    dim=1
+                prefix_len = prompt.shape[0]
+                attn_mask = batch["attention_mask"]  # [B, seq_len], left-padded (0=pad, 1=real)
+
+                # For left-padded inputs, insert prompt embeddings between the
+                # padding tokens and the real tokens so the causal LM attends to
+                # them in the correct order: [pad... | prompt... | real_tokens...]
+                pad_counts = (attn_mask == 0).sum(dim=1)  # [B] number of pad tokens per sample
+                new_seq_len = inputs_embeds.shape[1] + prefix_len
+                prompt_emb = prompt.unsqueeze(0).expand(batch_size, -1, -1)  # [B, prefix_len, d]
+
+                new_inputs_embeds = torch.zeros(
+                    batch_size, new_seq_len, inputs_embeds.shape[2],
+                    dtype=inputs_embeds.dtype, device=inputs_embeds.device
                 )
+                new_attn_mask = torch.zeros(
+                    batch_size, new_seq_len, dtype=attn_mask.dtype, device=attn_mask.device
+                )
+                for b in range(batch_size):
+                    n_pad = int(pad_counts[b].item())
+                    # Layout: [pad_tokens | prompt_tokens | real_tokens]
+                    new_inputs_embeds[b, :n_pad] = inputs_embeds[b, :n_pad]
+                    new_inputs_embeds[b, n_pad:n_pad + prefix_len] = prompt_emb[b]
+                    new_inputs_embeds[b, n_pad + prefix_len:] = inputs_embeds[b, n_pad:]
+                    # Mask: padding=0, prompt=1, real tokens follow original mask
+                    new_attn_mask[b, n_pad:n_pad + prefix_len] = 1
+                    new_attn_mask[b, n_pad + prefix_len:] = attn_mask[b, n_pad:]
+
+                inputs_embeds = new_inputs_embeds
+                source_mask_updated = new_attn_mask
             else:
                 source_mask_updated = batch["attention_mask"]
+
+            # total input length (pad + prompt + real tokens) used to slice generated output
+            total_input_len = inputs_embeds.shape[1]
 
             # encoder_outputs = model.encoder(
             #     attention_mask=source_mask_updated,
@@ -264,9 +284,10 @@ class PP(CL_Base_Model):
                     use_cache=True,
                 )
 
-            # Convert generated tokens to text
+            # generate() with inputs_embeds (no input_ids) returns ONLY the newly
+            # generated token IDs — there is nothing to skip.
             sequences = self.tokenizer.batch_decode(
-                outs[:, prompt_len:],
+                outs,
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=False
             )
@@ -330,7 +351,12 @@ class PP(CL_Base_Model):
         source_mask_updated = torch.concat((torch.tensor(1).to("cuda").repeat(k,full_prefix_len),
                                              batch["attention_mask"]), axis=1)
 
-        lm_labels = torch.concat((lm_labels[0][0].repeat(k,inputs_embeds.shape[1]-lm_labels.shape[1]),lm_labels),axis=1)
+        # Prefix positions must be ignored by the loss — fill with -100.
+        prefix_ignore = torch.full(
+            (k, inputs_embeds.shape[1] - lm_labels.shape[1]),
+            fill_value=-100, dtype=lm_labels.dtype, device=lm_labels.device
+        )
+        lm_labels = torch.concat([prefix_ignore, lm_labels], axis=1)
 
         
         '''
