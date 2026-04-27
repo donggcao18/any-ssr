@@ -167,13 +167,18 @@ class PP(CL_Base_Model):
 
 
         if task_num!=None and self.prefix_MLP!=None:
-            new_prompt = self.model.model.mlps[task_num](self.model.model.prompt)
+            with torch.no_grad():
+                new_prompt = self.model.model.mlps[task_num](self.model.model.prompt)
         else:
             new_prompt = self.model.model.prompt
-            # new_prompt = new_prompt.detach().cpu().numpy()
 
-        # new_prompt = torch.tensor(new_prompt, requires_grad = False).to(self.device)
-        self.previous_prompts = torch.concat([new_prompt, self.previous_prompts], axis=0)
+        # Detach so previous_prompts is always a frozen leaf tensor with no
+        # gradient path back to any MLP or prompt parameter.  Without this,
+        # DeepSpeed ZeRO tries to reduce gradients for already-frozen MLPs
+        # (from earlier tasks) and crashes because their gradients are None.
+        self.previous_prompts = torch.concat(
+            [new_prompt.clone().detach(), self.previous_prompts], axis=0
+        )
         print('Updated progressive prompts ', self.previous_prompts.shape)
 
     def task_generation_evaluation(self,
