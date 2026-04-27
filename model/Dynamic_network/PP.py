@@ -505,8 +505,7 @@ class PP(CL_Base_Model):
 
         # Validate on val split for all seen tasks after training on the whole task
         if progressive:
-            curr_prompt = torch.tensor(self.previous_prompts,
-                                        requires_grad=False).to(self.device)
+            curr_prompt = self.previous_prompts.clone().detach().to(self.device)
         else:
             if self.prefix_len>0:
                 curr_prompt = self.model.model.prompt
@@ -583,7 +582,10 @@ class PP(CL_Base_Model):
     def train_continual(self):
         for i_task, task in enumerate(self.train_task_list):
             last_task = (i_task == len(self.train_task_list)-1)
-            self.train_one_task(task, i_task, int(self.args.num_train_epochs[i_task]), True, last_task)
+            # num_train_epochs may be a single-element list when the same epoch
+            # count applies to all tasks; fall back to the last entry if needed.
+            epoch_idx = min(i_task, len(self.args.num_train_epochs) - 1)
+            self.train_one_task(task, i_task, int(self.args.num_train_epochs[epoch_idx]), True, last_task)
             self.save_model(i_task)
 
 def convert_PP_model(model, args):
