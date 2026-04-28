@@ -1,7 +1,8 @@
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
-from transformers.models.llama import LlamaForCausalLM
+from transformers.models.qwen2 import Qwen2ForCausalLM, Qwen2Model
+from transformers.models.llama import LlamaForCausalLM, LlamaModel
 import torch
 from torch.nn import CrossEntropyLoss
 from typing import Optional, List, Tuple, Union
@@ -12,10 +13,6 @@ import logging
 from transformers.cache_utils import Cache, DynamicCache
 
 from transformers.utils import logging
-
-from transformers.models.llama import LlamaModel
-
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaSdpaAttention, LlamaConfig, LlamaRMSNorm, LlamaRotaryEmbedding, LlamaAttention, LlamaFlashAttention2, LlamaMLP, repeat_kv, apply_rotary_pos_emb
 
 import torch.nn as nn
 
@@ -34,22 +31,71 @@ from tqdm import tqdm
 
 from peft import get_peft_model
 
-from utils.data.data_utils import create_prompt_dataset
+from utils.data.data_utils import create_codetask_dataset, PromptDataset
 from utils.data.data_collator import DataCollator
+from utils.data.hf_task_specs import TASK_LIST
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
 import torch.nn.functional as F
 
-LLAMA_ATTENTION_CLASSES = {
-    "eager": LlamaAttention,
-    "flash_attention_2": LlamaFlashAttention2,
-    "sdpa": LlamaSdpaAttention,
-}
 feature_layers = 4
 gamma = 10000
-router_weights_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/router_weights'
-dataset_path = '/U_PZL2023ZZ0005/rhe/dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000/'
-dataset_cache_path = '/U_PZL2023ZZ0005/rhe/Any-SSR/output_models/outputs_router_dataset_cache'
+router_weights_path = './output_models/router_weights'
+dataset_cache_path = './output_models/outputs_router_dataset_cache'
+
+class NewQwen2ForCausalLM(Qwen2ForCausalLM):
+    _tied_weights_keys = ["lm_head.weight"]
+    def __init__(self, config, task_number, gamma):
+        super().__init__(config)
+        self.model = Qwen2Model(config)
+        self.vocab_size = config.vocab_size
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+
+        self.model.layers = torch.nn.ModuleList(self.model.layers[:feature_layers])  # 仅取前4层进行分类
+
+        self.fe = torch.nn.Linear(in_features=config.hidden_size, out_features=gamma)
+        self.cls_head = torch.nn.Linear(in_features=gamma, out_features=task_number)
+
+        self.post_init()
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values=None,
+        inputs_embeds=None,
+        labels=None,
+        use_cache=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+        cache_position=None,
+    ):
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            cache_position=cache_position,
+        )
+
+        hidden_mean = outputs[0].mean(dim=1)
+        out = self.fe(hidden_mean)
+        return self.cls_head(out)
+
+    def MoeClassifier():
+        pass
+
 
 class NewLlamaForCausalLM(LlamaForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
@@ -59,11 +105,9 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        self.model.layers = torch.nn.ModuleList(self.model.layers[:4])  # 仅取前4层进行分类
+        self.model.layers = torch.nn.ModuleList(self.model.layers[:feature_layers])  # 仅取前4层进行分类
 
-        # self.cls_head = torch.nn.Linear(in_features=4096, out_features=task_number)
-        self.fe = torch.nn.Linear(in_features=4096, out_features=gamma)
-
+        self.fe = torch.nn.Linear(in_features=config.hidden_size, out_features=gamma)
         self.cls_head = torch.nn.Linear(in_features=gamma, out_features=task_number)
         # Initialize weights and apply final processing
         self.post_init()
@@ -138,9 +182,14 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step):
-    model = NewLlamaForCausalLM.from_pretrained(
-               '/U_PZL2023ZZ0005/rhe/ICML2026/meta-llama/Llama-2-7b-chat-hf',
+def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
+    if 'qwen' in model_name_or_path.lower():
+        ModelClass = NewQwen2ForCausalLM
+    else:
+        ModelClass = NewLlamaForCausalLM
+
+    model = ModelClass.from_pretrained(
+                model_name_or_path,
                 device_map="auto",
                 torch_dtype="auto",
                 # task_number=step+2,
@@ -148,22 +197,22 @@ def load_model_and_tokenizer(step):
                 trust_remote_code=True,
                 gamma=gamma
             )
-    
+
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        '/U_PZL2023ZZ0005/rhe/ICML2026/meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
+        model_name_or_path, trust_remote_code=True
     )
 
     return model, tokenizer
 
-def load_tokenizer():
+def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        '/U_PZL2023ZZ0005/rhe/ICML2026/meta-llama/Llama-2-7b-chat-hf', trust_remote_code=True
+        model_name_or_path, trust_remote_code=True
     )
 
     return tokenizer
 
 def train():
-    inference_tasks = ['NumGLUE-cm','NumGLUE-ds','FOMC','20Minuten','C-STANCE','Py150','MeetingBank','ScienceQA']
+    inference_tasks = TASK_LIST
     import numpy as np
 
     def eval_router(model, infer_dataloader, step):
@@ -201,20 +250,14 @@ def train():
         all_datasets = []
         for inference_task_id in range(len(cur_inference_tasks)):    # evaluation for previous tasks in a single round
             inference_task = inference_tasks[inference_task_id]
-            cur_dataset_path = os.path.join(dataset_path, inference_task)
+
             # Prepare the data
-            train, test, infer_dataset = create_prompt_dataset(
-                -1,
-                cur_dataset_path,
-                dataset_cache_path,
-                42,
-                distributed=False
+            _, _, hf_test = create_codetask_dataset(inference_task, 42, -1, -1, -1)
+            infer_dataset = PromptDataset(
+                list(hf_test['prompt']),
+                [inference_task_id for _ in hf_test]
             )
 
-            # infer_dataset = test
-            
-            infer_dataset.answer_dataset = [inference_task_id for _ in infer_dataset.answer_dataset]
-            
             all_datasets.append(infer_dataset)
         
         # continue
@@ -237,7 +280,7 @@ def train():
                                         collate_fn=inf_data_collator,
                                         # sampler=infer_sampler,
                                         shuffle=True,
-                                        batch_size=1)
+                                        batch_size=16)
 
         # Inference !
         # print("***** Start evaluation *****")
