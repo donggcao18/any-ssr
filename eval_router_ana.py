@@ -39,9 +39,9 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch.nn.functional as F
 
 feature_layers = 4
-gamma = 10000
-router_weights_path = f'./output_models/router_weights_qwencoder7b_gamma{gamma}'
-dataset_cache_path = f'./output_models/router_weights_qwencoder7b_gamma{gamma}'
+gamma = 5000
+router_weights_path = f'./output_models/router_weights_qwencoder_gamma5000'
+dataset_cache_path = f'./output_models/router_weights_qwencoder_gamma5000'
 
 class NewQwen2ForCausalLM(Qwen2ForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
@@ -182,7 +182,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-Coder-7B'):
+def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -204,7 +204,7 @@ def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-Coder-7B'):
 
     return model, tokenizer
 
-def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-7B'):
+def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path, trust_remote_code=True
     )
