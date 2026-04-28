@@ -40,11 +40,11 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch.nn.functional as F
 
 feature_layers = 4
-gamma = 5000
-router_weights_path = './output_models/router_weights_qwen_gamma5000'
-dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen_gamma5000'
+gamma_global = 5000
+router_weights_path = f'./output_models/router_weights_qwen_gamma{gamma_global}'
+dataset_cache_path = f'./output_models/outputs_router_dataset_cache_qwen_gamma{gamma_global}'
 paths = [router_weights_path,dataset_cache_path]
-
+    
 for path in paths:
     if not os.path.exists(path):
         os.makedirs(path)
@@ -200,7 +200,7 @@ def load_model_and_tokenizer(model_name_or_path='Qwen/Qwen2.5-1.5B'):
                 torch_dtype="auto",
                 task_number=8,
                 trust_remote_code=True,
-                gamma=10000
+                gamma=gamma_global
             )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
