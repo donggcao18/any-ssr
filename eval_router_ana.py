@@ -281,7 +281,7 @@ def train():
                                         collate_fn=inf_data_collator,
                                         # sampler=infer_sampler,
                                         shuffle=True,
-                                        batch_size=16)
+                                        batch_size=1)
 
         # Inference !
         # print("***** Start evaluation *****")
