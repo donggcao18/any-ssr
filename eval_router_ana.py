@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from transformers.models.qwen2 import Qwen2ForCausalLM, Qwen2Model
 from transformers.models.llama import LlamaForCausalLM, LlamaModel
@@ -182,7 +182,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
+def load_model_and_tokenizer(step, model_name_or_path='codellama/CodeLlama-7b-hf'):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -204,7 +204,7 @@ def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-Coder-1.5B')
 
     return model, tokenizer
 
-def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
+def load_tokenizer(model_name_or_path='codellama/CodeLlama-7b-hf'):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path, trust_remote_code=True
     )
