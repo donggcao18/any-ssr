@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from transformers.models.qwen2 import Qwen2ForCausalLM, Qwen2Model
 from transformers.models.llama import LlamaForCausalLM, LlamaModel
@@ -232,6 +232,7 @@ def train():
             logger.info("-" * 60)
             for steps, batch in enumerate(infer_dataloader):
                 labels = batch['gts']
+                sources = batch['sources']
                 input_ids = batch['input_ids']
                 input_ids = input_ids.to('cuda')
                 prediction = model(input_ids).to(torch.float32)
@@ -243,7 +244,8 @@ def train():
                     logger.info(
                         f"  [WRONG] sample={count} "
                         f"pred={pred_id} ({inference_tasks[pred_id]}) "
-                        f"gt={labels[0]} ({inference_tasks[labels[0]]})"
+                        f"gt={labels[0]} ({inference_tasks[labels[0]]}) "
+                        f"input={sources[0]!r}"
                     )
                 
                 count += 1
@@ -312,10 +314,16 @@ def train():
 
 
 if __name__ == "__main__":
+    log_file = os.path.join(router_weights_path, "eval.log")
+    os.makedirs(router_weights_path, exist_ok=True)
     logging.basicConfig(
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         level=logging.INFO,
         datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, mode="a", encoding="utf-8"),
+        ],
     )
     print(
         "-----------------------------------start router evaluation---------------------------------------"
