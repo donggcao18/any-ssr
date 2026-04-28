@@ -182,7 +182,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-1.5B'):
+def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-7B'):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -204,7 +204,7 @@ def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-1.5B'):
 
     return model, tokenizer
 
-def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-1.5B'):
+def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-7B'):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path, trust_remote_code=True
     )
