@@ -258,7 +258,7 @@ def train():
             
             print('Calculating Reverse')
 
-            R = np.mat(auto_cor.cpu().numpy() + 100 * np.eye(gamma)).I
+            R = np.mat(auto_cor.cpu().numpy() + 100 * np.eye(gamma_global)).I
             R_tensor = torch.tensor(R).float().cuda(non_blocking=True).cpu()
             Delta = R_tensor @ crs_cor.cpu()
             
