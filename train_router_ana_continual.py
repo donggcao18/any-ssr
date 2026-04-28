@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from transformers.models.qwen2 import Qwen2ForCausalLM
 from transformers.models.qwen2 import Qwen2Model
@@ -40,9 +40,9 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch.nn.functional as F
 
 feature_layers = 4
-gamma_global = 5000
-router_weights_path = f'./output_models/router_weights_qwencoder_gamma{gamma_global}'
-dataset_cache_path = f'./output_models/outputs_router_dataset_cache_qwencoder_gamma{gamma_global}'
+gamma_global = 10000
+router_weights_path = f'./output_models/router_weights_qwencoder7b_gamma{gamma_global}'
+dataset_cache_path = f'./output_models/outputs_router_dataset_cache_qwencoder7b_gamma{gamma_global}'
 paths = [router_weights_path,dataset_cache_path]
     
 for path in paths:
@@ -188,7 +188,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
         pass
 
 
-def load_model_and_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
+def load_model_and_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-7B'):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
