@@ -40,7 +40,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch.nn.functional as F
 
 feature_layers = 4
-gamma_global = 9000
+gamma_global = 5000
 router_weights_path = f'./output_models/router_weights_qwencoder_gamma{gamma_global}'
 dataset_cache_path = f'./output_models/outputs_router_dataset_cache_qwencoder_gamma{gamma_global}'
 paths = [router_weights_path,dataset_cache_path]
