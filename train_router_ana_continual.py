@@ -41,8 +41,8 @@ import torch.nn.functional as F
 
 feature_layers = 4
 gamma = 5000
-router_weights_path = './output_models/router_weights_qwen'
-dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen'
+router_weights_path = './output_models/router_weights_qwen_gamma5000'
+dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen_gamma5000'
 paths = [router_weights_path,dataset_cache_path]
 
 for path in paths:
