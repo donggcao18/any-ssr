@@ -39,9 +39,9 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch.nn.functional as F
 
 feature_layers = 4
-gamma = 10000
-router_weights_path = './output_models/router_weights_qwen'
-dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen'
+gamma = 5000
+router_weights_path = './output_models/router_weights_qwen_gamma5000'
+dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen_gamma5000'
 
 class NewQwen2ForCausalLM(Qwen2ForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
