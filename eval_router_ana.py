@@ -40,8 +40,8 @@ import torch.nn.functional as F
 
 feature_layers = 4
 gamma = 10000
-router_weights_path = './output_models/router_weights_qwen7b'
-dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen7b'
+router_weights_path = f'./output_models/router_weights_qwencoder7b_gamma{gamma}'
+dataset_cache_path = f'./output_models/router_weights_qwencoder7b_gamma{gamma}'
 
 class NewQwen2ForCausalLM(Qwen2ForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
