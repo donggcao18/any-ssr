@@ -40,8 +40,8 @@ import torch.nn.functional as F
 
 feature_layers = 4
 gamma = 10000
-router_weights_path = './output_models/router_weights'
-dataset_cache_path = './output_models/outputs_router_dataset_cache'
+router_weights_path = './output_models/router_weights_qwen'
+dataset_cache_path = './output_models/outputs_router_dataset_cache_qwen'
 
 class NewQwen2ForCausalLM(Qwen2ForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
@@ -182,7 +182,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step, model_name_or_path='codellama/CodeLlama-7b-hf'):
+def load_model_and_tokenizer(step, model_name_or_path='Qwen/Qwen2.5-1.5B'):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -204,7 +204,7 @@ def load_model_and_tokenizer(step, model_name_or_path='codellama/CodeLlama-7b-hf
 
     return model, tokenizer
 
-def load_tokenizer(model_name_or_path='codellama/CodeLlama-7b-hf'):
+def load_tokenizer(model_name_or_path='Qwen/Qwen2.5-1.5B'):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path, trust_remote_code=True
     )
