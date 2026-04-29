@@ -1,30 +1,24 @@
 """
-Load a single JSONL prediction file from HuggingFace and compute per-dataset
+Load a single JSONL prediction file from HuggingFace and compute per-task
 evaluation metrics using the project's existing metric code.
 
-Repo : dongg18/Online-CL-LLM_CodeT5-770m  (private model repo, branch: main)
-File : 8-CoST/predict_eval_predictions.jsonl
+Repo : dongg18/PP_CodeT5-770m  (private model repo, branch: main)
+File : codet5p-770m_20260421_170536/test_predictions_CoST.jsonl
 
 JSONL schema (one JSON object per line):
 {
-  "Task":    "CL",
-  "Dataset": "CodeTrans",
-  "Instance": {
-    "id": "0",
-    "sentence": "...",
-    "label": "...",
-    "instruction": "...",
-    "ground_truth": "..."
-  },
-  "Prediction": "..."
+  "task":       "CONCODE",
+  "input":      "...",
+  "prediction": "...",
+  "label":      "..."
 }
 
-Task policy (grouped by Dataset field):
+Task policy (grouped by task field):
   - CodeSearchNet, TheVault_Csharp  -> smooth BLEU  (calc_codebleu=False)
-  - All other datasets              -> CodeBLEU     (calc_codebleu=True)
+  - All other tasks                 -> CodeBLEU     (calc_codebleu=True)
 
 Run:
-  python eval_baselines_from_hf_1file.py [--output_dir ./hf_eval_results_online_cl]
+  python eval_baselines_from_hf_1file.py [--output_dir ./hf_eval_results_pp]
 """
 
 import argparse
@@ -43,9 +37,9 @@ from evaluator.compute_metrics import compute_metrics, DATASET_TO_OUTPUT_LANG
 # --------------------------------------------------------------------------- #
 # Repo / file configuration
 # --------------------------------------------------------------------------- #
-REPO_ID   = "dongg18/Online-CL-LLM_Qwen2.5-Coder-1.5"
+REPO_ID   = "dongg18/PP_CodeT5-770m"
 REPO_TYPE = "model"
-HF_FILE   = "8-CoST/predict_eval_predictions.jsonl"
+HF_FILE   = "codet5p-770m_20260421_170536/test_predictions_CoST.jsonl"
 
 # Datasets that use smooth BLEU; all others use CodeBLEU
 SMOOTH_BLEU_TASKS = {"CodeSearchNet", "TheVault_Csharp"}
@@ -103,12 +97,12 @@ def evaluate_dataset_group(dataset: str, preds: list[str], refs: list[str]) -> d
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate Online-CL-LLM_CodeT5-770m predictions from HuggingFace."
+        description="Evaluate PP_CodeT5-770m predictions from HuggingFace."
     )
     parser.add_argument(
         "--output_dir",
-        default="./hf_eval_results_online_cl",
-        help="Directory to write metric JSONs (default: ./hf_eval_results_online_cl).",
+        default="./hf_eval_results_pp",
+        help="Directory to write metric JSONs (default: ./hf_eval_results_pp).",
     )
     args = parser.parse_args()
 
@@ -130,24 +124,24 @@ def main():
     print("ALL PREDICTIONS")
     print("=" * 70)
     for i, rec in enumerate(records):
-        dataset    = rec.get("Dataset", "unknown")
-        ground_truth = rec["Instance"]["ground_truth"]
-        prediction = rec.get("Prediction", "")
-        print(f"[{i}] Dataset={dataset}")
+        task         = rec.get("task", "unknown")
+        ground_truth = rec.get("label", "")
+        prediction   = rec.get("prediction", "")
+        print(f"[{i}] Task={task}")
         print(f"     Ground-truth : {ground_truth.strip()}")
         print(f"     Prediction   : {prediction.strip()}")
         print()
 
     # ------------------------------------------------------------------ #
-    # 3. Group by Dataset
+    # 3. Group by task
     # ------------------------------------------------------------------ #
     groups: dict[str, dict[str, list]] = defaultdict(lambda: {"preds": [], "refs": []})
     for rec in records:
-        dataset      = rec.get("Dataset", "unknown")
-        ground_truth = rec["Instance"]["ground_truth"]
-        prediction   = rec.get("Prediction", "")
-        groups[dataset]["preds"].append(prediction)
-        groups[dataset]["refs"].append(ground_truth)
+        task         = rec.get("task", "unknown")
+        ground_truth = rec.get("label", "")
+        prediction   = rec.get("prediction", "")
+        groups[task]["preds"].append(prediction)
+        groups[task]["refs"].append(ground_truth)
 
     # ------------------------------------------------------------------ #
     # 4. Compute metrics per dataset
@@ -157,19 +151,19 @@ def main():
     print("=" * 70)
     all_results = []
 
-    for dataset in sorted(groups.keys()):
-        preds = groups[dataset]["preds"]
-        refs  = groups[dataset]["refs"]
+    for task in sorted(groups.keys()):
+        preds = groups[task]["preds"]
+        refs  = groups[task]["refs"]
 
-        result = evaluate_dataset_group(dataset, preds, refs)
+        result = evaluate_dataset_group(task, preds, refs)
 
         print(
-            f"Dataset: {result['dataset']} | Mode: {result['metric_mode']} "
+            f"Task: {result['dataset']} | Mode: {result['metric_mode']} "
             f"| N: {result['n_examples']}"
         )
         print(f"  Metrics: {result['metrics']}\n")
 
-        out_path = os.path.join(args.output_dir, f"{dataset}_metrics.json")
+        out_path = os.path.join(args.output_dir, f"{task}_metrics.json")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2)
 
