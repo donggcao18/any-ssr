@@ -27,7 +27,7 @@ from evaluator.compute_metrics import compute_metrics, DATASET_TO_OUTPUT_LANG
 # --------------------------------------------------------------------------- #
 # Repo configuration
 # --------------------------------------------------------------------------- #
-REPO_ID   = "dongg18/LoRa_PerTask_CodeT5-770m"
+REPO_ID   = "dongg18/LoRa_PerTask_CodeT5-700m_without_pool"
 REPO_TYPE = "model"
 
 HF_FILES = [
