@@ -3,7 +3,7 @@ Load a single JSONL prediction file from HuggingFace and compute per-dataset
 evaluation metrics using the project's existing metric code.
 
 Repo : dongg18/Online-CL-LLM_CodeT5-770m  (private model repo, branch: main)
-File : Online-CL-LLM_CodeT5-770m/8-CoST/predict_eval_predictions.jsonl
+File : 8-CoST/predict_eval_predictions.jsonl
 
 JSONL schema (one JSON object per line):
 {
@@ -45,7 +45,7 @@ from evaluator.compute_metrics import compute_metrics, DATASET_TO_OUTPUT_LANG
 # --------------------------------------------------------------------------- #
 REPO_ID   = "dongg18/Online-CL-LLM_CodeT5-770m"
 REPO_TYPE = "model"
-HF_FILE   = "Online-CL-LLM_CodeT5-770m/8-CoST/predict_eval_predictions.jsonl"
+HF_FILE   = "8-CoST/predict_eval_predictions.jsonl"
 
 # Datasets that use smooth BLEU; all others use CodeBLEU
 SMOOTH_BLEU_TASKS = {"CodeSearchNet", "TheVault_Csharp"}
