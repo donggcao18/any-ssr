@@ -43,7 +43,7 @@ from evaluator.compute_metrics import compute_metrics, DATASET_TO_OUTPUT_LANG
 # --------------------------------------------------------------------------- #
 # Repo / file configuration
 # --------------------------------------------------------------------------- #
-REPO_ID   = "dongg18/Online-CL-LLM_CodeT5-770m"
+REPO_ID   = "dongg18/Online-CL-LLM_Qwen2.5-Coder-1.5"
 REPO_TYPE = "model"
 HF_FILE   = "8-CoST/predict_eval_predictions.jsonl"
 
