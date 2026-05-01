@@ -2,6 +2,8 @@ from copy import deepcopy
 
 import torch
 import torch.utils.data
+import torch.distributed as dist
+import torch.nn.functional as F
 from tqdm.auto import tqdm
 from torch import nn
 from model.base_model import CL_Base_Model
@@ -177,26 +179,51 @@ class L2P(CL_Base_Model):
                 f"***** Evaluating generation metrics, Epoch {epoch+1}/{epochs} on task {task} *****",
                 self.args.global_rank,
             )
-            self.evaluate_one_task(round=i_task, infer_task_id=i_task, task=task)
+            self.evaluate_one_task(round=i_task, infer_task_id=i_task, task=task, infer_dataloader=self.eval_task_list[task])
 
-    def save_model(self, i_task):
-        if self.args.output_dir is None:
-            return
+    def test_all_tasks_and_save_predictions(self):
+        self.args.output_dir = './L2P_final_results'
+        for task_idx, (task_name, test_dataloader) in enumerate(self.test_task_list.items()):
+            print_rank_0(
+                f"***** Final testing on task {task_name} after continual training *****",
+                self.args.global_rank,
+            )
+            self.evaluate_one_task(round=task_idx, infer_task_id=task_idx, task=task_name, infer_dataloader=test_dataloader, save_results=True)
 
-        if self.args.global_rank == 0:
-            save_dir = os.path.join(self.args.output_dir, str(i_task))
-            os.makedirs(save_dir, exist_ok=True)
-            self.model.save_pretrained(save_dir)
-            self.tokenizer.save_pretrained(save_dir)
-            print_rank_0(f"Sucessfully saving the final model to {save_dir}", self.args.global_rank)
+    def evaluate(self, round, infer_task_id, task, infer_dataloader):
+        self.evaluate_one_task(round,infer_task_id, task, infer_dataloader)
 
-    def evaluate(self, round, infer_task_id, task):
-        self.evaluate_one_task(round,infer_task_id, task)
+    def dist_results_gather(self, generate_ids, pad_token=-1):
+        if not dist.is_available() or not dist.is_initialized():
+            return generate_ids, generate_ids.size(1)
+
+        result = generate_ids
+        local_batch_size = torch.tensor([result.size(0)], dtype=torch.int, device=result.device)
+        local_seq_len = torch.tensor([result.size(1)], dtype=torch.int, device=result.device)
+
+        world_size = dist.get_world_size()
+        global_batch_sizes = [torch.zeros_like(local_batch_size) for _ in range(world_size)]
+        global_seq_len = [torch.zeros_like(local_seq_len) for _ in range(world_size)]
+        dist.all_gather(global_batch_sizes, local_batch_size)
+        dist.all_gather(global_seq_len, local_seq_len)
+
+        max_seq_len = max(int(seq_len.item()) for seq_len in global_seq_len)
+
+        if result.size(1) < max_seq_len:
+            pad_seq_len = (max_seq_len - result.size(1), 0)
+            result = F.pad(result, pad_seq_len, "constant", pad_token)
+
+        total_results = [
+            torch.zeros((int(bs.item()), max_seq_len), dtype=result.dtype, device=result.device)
+            for bs in global_batch_sizes
+        ]
+        dist.all_gather(total_results, result)
+        flat_results = torch.cat(total_results, dim=0)
+
+        return flat_results, max_seq_len
         
-    def evaluate_one_task(self, round, infer_task_id, task):
+    def evaluate_one_task(self, round, infer_task_id, task, infer_dataloader, save_results=False):
         device = self.device
-
-        infer_dataloader = self.test_task_list[task]
 
         progress_bar = tqdm(total=len(infer_dataloader), leave=True, disable=(self.args.global_rank != 0))
         
@@ -207,13 +234,35 @@ class L2P(CL_Base_Model):
             model.eval()
 
             for step, batch in enumerate(infer_dataloader):
-                ground_truths_ids = self.tokenizer(batch['gts'], 
-                                                   truncation=True,
-                                                   max_length=self.args.max_ans_len,
-                                                   add_special_tokens=False,
-                                                   padding='max_length',
-                                                   return_tensors='pt')['input_ids'].to(device)
-                del batch['gts']
+                sources_sequences += batch.get('sources', [])
+                if 'gts' in batch:
+                    label_sequences += batch['gts']
+                    ground_truths_ids = self.tokenizer(
+                        batch['gts'],
+                        truncation=True,
+                        max_length=int(self.args.max_ans_len[infer_task_id]),
+                        add_special_tokens=False,
+                        padding='max_length',
+                        return_tensors='pt',
+                    )['input_ids'].to(device)
+                    del batch['gts']
+                elif 'labels' in batch:
+                    label_tensor = batch['labels']
+                    for row in label_tensor:
+                        valid_ids = row[row != -100].detach().cpu().tolist()
+                        label_sequences.append(
+                            self.tokenizer.decode(
+                                valid_ids,
+                                skip_special_tokens=True,
+                                clean_up_tokenization_spaces=False,
+                            )
+                        )
+                    ground_truths_ids = batch['labels']
+                    del batch['labels']
+                else:
+                    label_sequences += [''] * len(batch.get('sources', []))
+                    ground_truths_ids = torch.empty(0, dtype=torch.long, device=device)
+
                 del batch['sources']
                 batch = to_device(batch, device)
                 progress_bar.update(1)
@@ -244,14 +293,39 @@ class L2P(CL_Base_Model):
                     batched_prompt_raw = self.model.model.prompt[idx] # B, top_k, length, C
                     batch_size, top_k, length, c = batched_prompt_raw.shape
                     batched_prompt = batched_prompt_raw.reshape(batch_size, top_k * length, c) # B, top_k * length, C
-                    inputs_embeds = torch.cat([batched_prompt, inputs_embeds],axis=1)
-                    
+
                     prefix_length = batched_prompt.shape[1]
-                    attn_masks = torch.concat((torch.tensor(1).to("cuda").repeat(batch_size,prefix_length),attn_masks), axis=1)                    
+                    pad_counts = (attn_masks == 0).sum(dim=1)
+                    new_seq_len = inputs_embeds.shape[1] + prefix_length
+                    new_inputs_embeds = torch.zeros(
+                        batch_size,
+                        new_seq_len,
+                        inputs_embeds.shape[2],
+                        dtype=inputs_embeds.dtype,
+                        device=inputs_embeds.device,
+                    )
+                    new_attn_mask = torch.zeros(
+                        batch_size,
+                        new_seq_len,
+                        dtype=attn_masks.dtype,
+                        device=attn_masks.device,
+                    )
+
+                    for b in range(batch_size):
+                        n_pad = int(pad_counts[b].item())
+                        # Layout: [pad_tokens | prompt_tokens | real_tokens]
+                        new_inputs_embeds[b, :n_pad] = inputs_embeds[b, :n_pad]
+                        new_inputs_embeds[b, n_pad:n_pad + prefix_length] = batched_prompt[b]
+                        new_inputs_embeds[b, n_pad + prefix_length:] = inputs_embeds[b, n_pad:]
+                        new_attn_mask[b, n_pad:n_pad + prefix_length] = 1
+                        new_attn_mask[b, n_pad + prefix_length:] = attn_masks[b, n_pad:]
+
+                    inputs_embeds = new_inputs_embeds
+                    attn_masks = new_attn_mask
                     
                     generate_ids = model.generate(inputs_embeds=inputs_embeds,
                                                   attention_mask=attn_masks,
-                                                  max_new_tokens=self.args.max_ans_len,
+                                                  max_new_tokens=int(self.args.max_ans_len[infer_task_id]),
                                                   bos_token_id=self.tokenizer.bos_token_id,
                                                   eos_token_id=self.tokenizer.eos_token_id,
                                                   pad_token_id=self.tokenizer.unk_token_id,
@@ -259,17 +333,12 @@ class L2P(CL_Base_Model):
                                                 use_cache=False
 
                                                   )
-                # add for distributed 
-                gathered_ids, max_seq_len = self.dist_results_gather(generate_ids, self.tokenizer.eos_token_id)
-                gathered_labels, max_label_len = self.dist_results_gather(ground_truths_ids, self.tokenizer.eos_token_id)
-
-                if self.args.global_rank <= 0:
-                    sou_sequences = self.tokenizer.batch_decode(gathered_ids[:, : max_seq_len], skip_special_tokens=True, clean_up_tokenization_spaces=False)
-                    pre_sequences = self.tokenizer.batch_decode(gathered_ids[:, max_seq_len:], skip_special_tokens=True, clean_up_tokenization_spaces=False)
-                    lab_sequences = self.tokenizer.batch_decode(gathered_labels[:, : max_label_len], skip_special_tokens=True, clean_up_tokenization_spaces=False)
-                    predicted_sequences += pre_sequences
-                    sources_sequences += sou_sequences
-                    label_sequences += lab_sequences
+                pre_sequences = self.tokenizer.batch_decode(
+                    generate_ids,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False,
+                )
+                predicted_sequences += pre_sequences
 
             return sources_sequences, predicted_sequences, label_sequences
 
@@ -277,11 +346,18 @@ class L2P(CL_Base_Model):
         def save_inference_results(evaluation_result: dict, sources_sequences: list, predicted_sequences: list,
                                    ground_truths: list, round: int, i_task: int, task: str):
             # save as a json file
-            df = {"eval": evaluation_result, 'prompts': sources_sequences, 'results': predicted_sequences,
-                  'labels': ground_truths}
+            df = {"eval": evaluation_result}
             if not os.path.exists(self.args.output_dir):
                 os.makedirs(self.args.output_dir)
-
+            prediction_rows = [
+                {
+                    "source": source,
+                    "ground-truth": gt,
+                    "prediction": pred,
+                }
+                for source, gt, pred in zip(sources_sequences, ground_truths, predicted_sequences)
+            ]
+            df["predictions"] = prediction_rows
             with open(self.args.output_dir + "/results-" + str(round) + "-" + str(i_task) + "-" + task + ".json", "w+", encoding='utf-8') as file:
                 json.dump(df, file, ensure_ascii=False)
 
@@ -293,12 +369,22 @@ class L2P(CL_Base_Model):
         # Get Accuracy/ROUGE/BLEU/CodeBLEU/...
         # Prefer the shared evaluator in `CL_Base_Model` (handles CodeBLEU/SmoothBLEU/etc. for code tasks).
         if self.args.global_rank <= 0:
+            for source, gt, pred in list(zip(sources_sequences, ground_truths, predicted_sequences))[:3]:
+                print_rank_0("***** Sample inference results *****", self.args.global_rank)
+                print_rank_0(f"Source: {source}", self.args.global_rank)
+                print_rank_0(f"Ground Truth: {gt}", self.args.global_rank)
+                print_rank_0(f"Prediction: {pred}", self.args.global_rank)
+                print_rank_0("-----", self.args.global_rank)
+
             evaluation_result = self._task_eval_from_predictions(
                 task,
                 sources_sequences=sources_sequences,
                 predicted_sequences=predicted_sequences,
                 ground_truths=ground_truths,
             )
+            print_rank_0(f"***** Evaluation results on task {task} *****", self.args.global_rank)
+            print_rank_0(evaluation_result, self.args.global_rank)
 
-            print("***** Saving inference results *****")
-            save_inference_results(evaluation_result, sources_sequences, predicted_sequences, ground_truths, round, infer_task_id, task)
+            if save_results:
+                print_rank_0("***** Saving inference results *****", self.args.global_rank)
+                save_inference_results(evaluation_result, sources_sequences, predicted_sequences, ground_truths, round, infer_task_id, task)
