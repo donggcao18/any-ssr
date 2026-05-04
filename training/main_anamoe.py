@@ -72,7 +72,7 @@ from deepspeed.utils import safe_get_full_grad
 
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
-from utils.data.data_utils import create_prompt_dataset, create_codetask_dataset
+from utils.data.data_utils import create_prompt_dataset, create_codetask_dataset, create_executable_dataset
 from utils.data.data_collator import DataCollator
 from utils.utils import print_rank_0, to_device, save_hf_format, set_random_seed, get_all_reduce_mean, get_optimizer_grouped_parameters, save_zero_three_model, load_hf_tokenizer
 from utils.ds_utils import get_train_ds_config
@@ -95,7 +95,7 @@ from model.Dynamic_network.PP import convert_PP_model
 from model.Dynamic_network.L2P import convert_L2P_model
 
 
-from params import Method2Class, AllDatasetName
+from params import Method2Class, AllDatasetName, AllDatasetNameExecutable
 
 # import debugpy
 
@@ -119,6 +119,11 @@ def parse_args():
                         type=str,
                         default='Dahoas/rm-static',
                         help='Path to the training dataset, a single data path.')
+    parser.add_argument('--benchmark',
+                        type=str,
+                        choices=['executable', 'non-executable']
+                        default='non-executable',
+                        help='Benchmark to be evaluated: executable or non-executable')
     parser.add_argument('--dataset_name',
                         type=list_of_strings,
                         default='all',
@@ -501,7 +506,10 @@ def main():
 
 
     if args.dataset_name[0] == "all":
-        Datasets = AllDatasetName
+        if args.benchmark == "non-executable":    
+            Datasets = AllDatasetName
+        else:
+            Datasets = AllDatasetNameExecutable
     else:
         Datasets = args.dataset_name
     
@@ -520,7 +528,10 @@ def main():
     for i, dataset in enumerate(Datasets):
         # dataset_path = os.path.join(args.data_path,dataset)
         # Prepare the data
-        train_dataset, eval_dataset, test_dataset = create_codetask_dataset(dataset, args.seed, args.num_train[i], args.num_eval[i], args.num_test[i])
+        if args.benchmark == "non-executable":
+            train_dataset, eval_dataset, test_dataset = create_codetask_dataset(dataset, args.seed, args.num_train[i], args.num_eval[i], args.num_test[i])
+        else:
+            train_dataset, eval_dataset, test_dataset = create_executable_dataset(dataset, args.seed, args.num_train[i], args.num_eval[i], args.num_test[i])
 
         # DataLoaders creation:
         if args.local_rank == -1:
