@@ -1,6 +1,5 @@
 import os
 import argparse
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from transformers.models.qwen2 import Qwen2ForCausalLM
 from transformers.models.qwen2 import Qwen2Model
@@ -89,6 +88,12 @@ def parse_args():
         default="non-executable",
         help="Benchmark to be evaluated: executable or non-executable.",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="Device to run on: auto, cpu, cuda, or cuda:<index>.",
+    )
     return parser.parse_args()
 
 
@@ -96,6 +101,15 @@ def ensure_dirs(paths):
     for path in paths:
         if not os.path.exists(path):
             os.makedirs(path)
+
+
+def resolve_device(device_arg: str) -> torch.device:
+    if device_arg == "auto":
+        return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    if device_arg.startswith("cuda") and not torch.cuda.is_available():
+        print("[WARN] CUDA requested but not available. Falling back to CPU.")
+        return torch.device("cpu")
+    return torch.device(device_arg)
 
 class NewQwen2ForCausalLM(Qwen2ForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
@@ -236,7 +250,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
         pass
 
 
-def load_model_and_tokenizer(model_name_or_path):
+def load_model_and_tokenizer(model_name_or_path, device: torch.device):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -244,7 +258,7 @@ def load_model_and_tokenizer(model_name_or_path):
 
     model = ModelClass.from_pretrained(
                 model_name_or_path,
-                device_map="auto",
+                device_map="auto" if device.type == "cuda" else None,
                 torch_dtype="auto",
                 task_number=8,
                 trust_remote_code=True,
@@ -261,8 +275,9 @@ def train(args):
     num_epochs = 1
     max_length = 150
 
+    device = resolve_device(args.device)
 
-    model, tokenizer = load_model_and_tokenizer(args.model_name_or_path)
+    model, tokenizer = load_model_and_tokenizer(args.model_name_or_path, device)
     tokenizer.pad_token = tokenizer.eos_token
 
     for name, param in model.named_parameters():
@@ -288,13 +303,13 @@ def train(args):
             pbar = tqdm(infer_dataloader, desc=f"[Step {step}] Initial training", unit="batch")
             for steps, batch in enumerate(pbar):
                 labels = batch['gts']
-                input_ids = batch['input_ids'].to('cuda')
+                input_ids = batch['input_ids'].to(device)
                 
 
                 new_activation = model(input_ids).to(torch.float32)
                 labels = torch.tensor(labels)
                 # label_onehot = F.one_hot(labels, step + 2).float().to('cuda')
-                label_onehot = F.one_hot(labels, step + 1).float().to('cuda')
+                label_onehot = F.one_hot(labels, step + 1).float().to(device)
                 
 
                 if count == 0:
@@ -310,8 +325,8 @@ def train(args):
             print('Calculating Reverse')
 
             R = np.mat(auto_cor.cpu().numpy() + 100 * np.eye(gamma_global)).I
-            R_tensor = torch.tensor(R).float().cuda(non_blocking=True).cpu()
-            Delta = R_tensor @ crs_cor.cpu()
+            R_tensor = torch.tensor(R).float().to(device)
+            Delta = R_tensor @ crs_cor.to(device)
             
 
             torch.save(Delta, f'{router_weights_path}/step{step}_router_weight.pth')
@@ -324,8 +339,8 @@ def train(args):
     def train_subsequent_router(model, infer_dataloader, step, prev_R, prev_Delta):
         """Recursive Train"""
         # router dimension expansion
-        prev_Delta = F.pad(prev_Delta, (0, 1), mode='constant', value=0).to('cuda')
-        prev_R = prev_R.to('cuda')
+        prev_Delta = F.pad(prev_Delta, (0, 1), mode='constant', value=0).to(device)
+        prev_R = prev_R.to(device)
         with torch.no_grad():
             print(f'Start training from {inference_tasks[0]} to {inference_tasks[step]}')
             print(f'Use step{step-1} as initial R')
@@ -335,14 +350,14 @@ def train(args):
             pbar = tqdm(infer_dataloader, desc=f"[Step {step}] Recursive training", unit="batch")
             for steps, batch in enumerate(pbar):
                 labels = batch['gts']
-                input_ids = batch['input_ids'].to('cuda')
+                input_ids = batch['input_ids'].to(device)
                 
                 new_activation = model(input_ids).to(torch.float32)
                 labels = torch.tensor(labels)
                 # label_onehot = F.one_hot(labels, step + 2).float().to('cuda')
-                label_onehot = F.one_hot(labels, step + 1).float().to('cuda')
+                label_onehot = F.one_hot(labels, step + 1).float().to(device)
 
-                prev_R = prev_R - prev_R @ new_activation.t() @ torch.pinverse(torch.eye(new_activation.shape[0]).to('cuda') +
+                prev_R = prev_R - prev_R @ new_activation.t() @ torch.pinverse(torch.eye(new_activation.shape[0]).to(device) +
                                                                     new_activation @ prev_R @ new_activation.t()) @ new_activation @ prev_R
                 prev_Delta = prev_Delta + prev_R @ new_activation.t() @ (label_onehot - new_activation @ prev_Delta)
                 pbar.set_postfix(batches=steps + 1)

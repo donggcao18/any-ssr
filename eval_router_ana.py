@@ -1,6 +1,5 @@
 import os
 import argparse
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from transformers.models.qwen2 import Qwen2ForCausalLM, Qwen2Model
 from transformers.models.llama import LlamaForCausalLM, LlamaModel
@@ -88,6 +87,12 @@ def parse_args():
         choices=["executable", "non-executable"],
         default="non-executable",
         help="Benchmark to be evaluated: executable or non-executable.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="Device to run on: auto, cpu, cuda, or cuda:<index>.",
     )
     return parser.parse_args()
 
@@ -230,7 +235,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step, model_name_or_path):
+def load_model_and_tokenizer(step, model_name_or_path, device: torch.device):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -238,7 +243,7 @@ def load_model_and_tokenizer(step, model_name_or_path):
 
     model = ModelClass.from_pretrained(
                 model_name_or_path,
-                device_map="auto",
+                device_map="auto" if device.type == "cuda" else None,
                 torch_dtype="auto",
                 # task_number=step+2,
                 task_number=step+1,
@@ -259,7 +264,17 @@ def load_tokenizer(model_name_or_path):
 
     return tokenizer
 
+
+def resolve_device(device_arg: str) -> torch.device:
+    if device_arg == "auto":
+        return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    if device_arg.startswith("cuda") and not torch.cuda.is_available():
+        print("[WARN] CUDA requested but not available. Falling back to CPU.")
+        return torch.device("cpu")
+    return torch.device(device_arg)
+
 def train(args):
+    device = resolve_device(args.device)
     if args.benchmark == "executable":
         inference_tasks = AllDatasetNameExecutable
     else:
@@ -285,7 +300,7 @@ def train(args):
                 labels = batch['gts']
                 sources = batch['sources']
                 input_ids = batch['input_ids']
-                input_ids = input_ids.to('cuda')
+                input_ids = input_ids.to(device)
                 prediction = model(input_ids).to(torch.float32)
 
                 pred_id = prediction.argmax().item()
@@ -307,7 +322,7 @@ def train(args):
 
     # for i in range(0, len(inference_tasks) - 1):
     for i in range(0, len(inference_tasks)):
-        model, tokenizer = load_model_and_tokenizer(i, args.model_name_or_path)
+        model, tokenizer = load_model_and_tokenizer(i, args.model_name_or_path, device)
         tokenizer.pad_token = tokenizer.eos_token
 
         # cur_inference_tasks = inference_tasks[0:i+2]
