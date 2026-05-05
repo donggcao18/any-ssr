@@ -47,6 +47,12 @@ gamma_global = 5000
 def parse_args():
     parser = argparse.ArgumentParser(description="Train router for continual learning.")
     parser.add_argument(
+        "--model_name_or_path",
+        type=str,
+        default="Qwen/Qwen2.5-Coder-1.5B",
+        help="Path to pretrained model or model identifier from huggingface.co/models.",
+    )
+    parser.add_argument(
         "--router_weights_path",
         type=str,
         default=f"./output_models/router_weights_qwencoder_gamma{gamma_global}_batch1",
@@ -230,7 +236,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
         pass
 
 
-def load_model_and_tokenizer(model_name_or_path='Qwen/Qwen2.5-Coder-1.5B'):
+def load_model_and_tokenizer(model_name_or_path):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -256,7 +262,7 @@ def train(args):
     max_length = 150
 
 
-    model, tokenizer = load_model_and_tokenizer()
+    model, tokenizer = load_model_and_tokenizer(args.model_name_or_path)
     tokenizer.pad_token = tokenizer.eos_token
 
     for name, param in model.named_parameters():
