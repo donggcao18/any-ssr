@@ -11,4 +11,4 @@ python eval_router_ana.py \
     --dataset_cache_path  "output_models/outputs_router_executable_cache" \
     --max_prompt_len 1024 \
     --max_ans_len    2048 \
-    --batch_size     32
+    --batch_size     1
