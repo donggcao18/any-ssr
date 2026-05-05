@@ -158,34 +158,125 @@ class CL_Base_Model:
         if self.args.global_rank == 0:
             os.makedirs(prediction_root, exist_ok=True)
 
-        final_metrics = {}
-        for task_idx, (task_name, test_dataloader) in enumerate(self.test_task_list.items()):
-            print_rank_0(
-                f"***** Final testing on task {task_name} after continual training *****",
-                self.args.global_rank,
-            )
-            test_result, prediction_rows = self.task_generation_evaluation(
-                task_name,
-                test_dataloader,
-                device,
-                max_ans_len=self._resolve_max_ans_len(task_idx),
-                return_predictions=True,
-            )
-            final_metrics[task_name] = test_result
-            print_rank_0(f"[final-test task={task_name}] result: {test_result}", self.args.global_rank)
+        if getattr(self.args, "benchmark", "non-executable") == "non-executable":
+            final_metrics = {}
+            for task_idx, (task_name, test_dataloader) in enumerate(self.test_task_list.items()):
+                print_rank_0(
+                    f"***** Final testing on task {task_name} after continual training *****",
+                    self.args.global_rank,
+                )
+                test_result, prediction_rows = self.task_generation_evaluation(
+                    task_name,
+                    test_dataloader,
+                    device,
+                    max_ans_len=self._resolve_max_ans_len(task_idx),
+                    return_predictions=True,
+                )
+                final_metrics[task_name] = test_result
+                print_rank_0(f"[final-test task={task_name}] result: {test_result}", self.args.global_rank)
+
+                if self.args.global_rank == 0:
+                    safe_task_name = str(task_name).replace("/", "_").replace(":", "_")
+                    prediction_file = os.path.join(prediction_root, f"{task_idx}_{safe_task_name}.json")
+                    with open(prediction_file, "w", encoding="utf-8") as f:
+                        json.dump(prediction_rows, f, ensure_ascii=False, indent=2)
+                    print_rank_0(f"Saved final-test predictions to {prediction_file}", self.args.global_rank)
 
             if self.args.global_rank == 0:
-                safe_task_name = str(task_name).replace("/", "_").replace(":", "_")
-                prediction_file = os.path.join(prediction_root, f"{task_idx}_{safe_task_name}.json")
-                with open(prediction_file, "w", encoding="utf-8") as f:
-                    json.dump(prediction_rows, f, ensure_ascii=False, indent=2)
-                print_rank_0(f"Saved final-test predictions to {prediction_file}", self.args.global_rank)
+                metrics_file = os.path.join(prediction_root, "metrics_summary.json")
+                with open(metrics_file, "w", encoding="utf-8") as f:
+                    json.dump(final_metrics, f, ensure_ascii=False, indent=2)
+                print_rank_0(f"Saved final-test metrics to {metrics_file}", self.args.global_rank)
+        else:
+            num_return_sequences = int(getattr(self.args, "num_return_sequences", 1))
+            top_k = int(getattr(self.args, "top_k", 0))
+            generation_kwargs = self.generation_config.to_dict()
+            generation_kwargs.update({
+                "num_return_sequences": num_return_sequences,
+                "top_k": top_k,
+            })
+            generation_config = GenerationConfig(**generation_kwargs)
 
-        if self.args.global_rank == 0:
-            metrics_file = os.path.join(prediction_root, "metrics_summary.json")
-            with open(metrics_file, "w", encoding="utf-8") as f:
-                json.dump(final_metrics, f, ensure_ascii=False, indent=2)
-            print_rank_0(f"Saved final-test metrics to {metrics_file}", self.args.global_rank)
+            for task_idx, (task_name, test_dataloader) in enumerate(self.test_task_list.items()):
+                print_rank_0(
+                    f"***** Final testing on task {task_name} after continual training *****",
+                    self.args.global_rank,
+                )
+
+                predicted_sequences = []
+                sources_sequences = []
+                ground_truths = []
+
+                progress_bar = tqdm(total=len(test_dataloader), leave=True, disable=(self.args.global_rank != 0))
+                for step, batch in enumerate(test_dataloader):
+                    sources_sequences += batch['sources']
+                    if 'gts' in batch:
+                        ground_truths += batch['gts']
+                        del batch['gts']
+                    elif 'labels' in batch:
+                        label_tensor = batch['labels']
+                        for row in label_tensor:
+                            valid_ids = row[row != -100].detach().cpu().tolist()
+                            ground_truths.append(
+                                self.tokenizer.decode(valid_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+                            )
+                        del batch['labels']
+                    else:
+                        ground_truths += [''] * len(batch['sources'])
+
+                    del batch['sources']
+                    batch = to_device(batch, device)
+                    prompt_len = batch['input_ids'].shape[1]
+
+                    with torch.no_grad():
+                        pad_token_id = self.tokenizer.pad_token_id
+                        if pad_token_id is None:
+                            pad_token_id = self.tokenizer.eos_token_id
+
+                        generate_ids = self.model.generate(
+                            input_ids=batch['input_ids'],
+                            attention_mask=batch['attention_mask'],
+                            max_new_tokens=self._resolve_max_ans_len(task_idx),
+                            eos_token_id=self.tokenizer.eos_token_id,
+                            pad_token_id=pad_token_id,
+                            generation_config=generation_config,
+                            use_cache=True,
+                        )
+
+                    sequences = self.tokenizer.batch_decode(
+                        generate_ids[:, prompt_len:],
+                        skip_special_tokens=True,
+                        clean_up_tokenization_spaces=False,
+                    )
+
+                    if num_return_sequences > 1:
+                        batch_preds = [
+                            sequences[i:i + num_return_sequences]
+                            for i in range(0, len(sequences), num_return_sequences)
+                        ]
+                        predicted_sequences.extend(batch_preds)
+                    else:
+                        predicted_sequences += sequences
+
+                    if self.args.global_rank == 0:
+                        progress_bar.update(1)
+                        description = f"Test step {step}"
+                        progress_bar.set_description(description, refresh=False)
+
+                if self.args.global_rank == 0:
+                    prediction_rows = [
+                        {
+                            "source": source,
+                            "ground-truth": gt,
+                            "prediction": pred,
+                        }
+                        for source, gt, pred in zip(sources_sequences, ground_truths, predicted_sequences)
+                    ]
+                    safe_task_name = str(task_name).replace("/", "_").replace(":", "_")
+                    prediction_file = os.path.join(prediction_root, f"{task_idx}_{safe_task_name}.json")
+                    with open(prediction_file, "w", encoding="utf-8") as f:
+                        json.dump({"eval": {}, "predictions": prediction_rows}, f, ensure_ascii=False, indent=2)
+                    print_rank_0(f"Saved final-test predictions to {prediction_file}", self.args.global_rank)
 
 
     def train_one_task(self, task, i_task, epochs):
@@ -229,26 +320,27 @@ class CL_Base_Model:
                 self.model.step()
 
             # Validate on eval split after each epoch
-            print_rank_0(
-                f"***** Evaluating generation metrics, Epoch {epoch+1}/{epochs} on task {task} *****",
-                self.args.global_rank)
-            eval_result, eval_predictions = self.task_generation_evaluation(
-                task,
-                eval_dataloader,
-                device,
-                max_ans_len=self._resolve_max_ans_len(i_task),
-                return_predictions=True,
-            )
-            print_rank_0(f"[task={task}] validation result: {eval_result}", self.args.global_rank)
+            if not getattr(self.args, "disable_epoch_eval", False):
+                print_rank_0(
+                    f"***** Evaluating generation metrics, Epoch {epoch+1}/{epochs} on task {task} *****",
+                    self.args.global_rank)
+                eval_result, eval_predictions = self.task_generation_evaluation(
+                    task,
+                    eval_dataloader,
+                    device,
+                    max_ans_len=self._resolve_max_ans_len(i_task),
+                    return_predictions=True,
+                )
+                print_rank_0(f"[task={task}] validation result: {eval_result}", self.args.global_rank)
 
-            if self.args.global_rank == 0 and self.args.output_dir is not None:
-                safe_task_name = str(task).replace("/", "_").replace(":", "_")
-                pred_dir = os.path.join(self.args.output_dir, "predictions", f"eval-epoch{epoch+1}")
-                os.makedirs(pred_dir, exist_ok=True)
-                pred_file = os.path.join(pred_dir, f"{safe_task_name}.json")
-                with open(pred_file, "w", encoding="utf-8") as f:
-                    json.dump({"metrics": eval_result, "predictions": eval_predictions}, f, ensure_ascii=False, indent=2)
-                print_rank_0(f"Saved eval predictions to {pred_file}", self.args.global_rank)
+                if self.args.global_rank == 0 and self.args.output_dir is not None:
+                    safe_task_name = str(task).replace("/", "_").replace(":", "_")
+                    pred_dir = os.path.join(self.args.output_dir, "predictions", f"eval-epoch{epoch+1}")
+                    os.makedirs(pred_dir, exist_ok=True)
+                    pred_file = os.path.join(pred_dir, f"{safe_task_name}.json")
+                    with open(pred_file, "w", encoding="utf-8") as f:
+                        json.dump({"metrics": eval_result, "predictions": eval_predictions}, f, ensure_ascii=False, indent=2)
+                    print_rank_0(f"Saved eval predictions to {pred_file}", self.args.global_rank)
     
     
     def train_continual(self):

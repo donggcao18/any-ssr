@@ -121,7 +121,7 @@ def parse_args():
                         help='Path to the training dataset, a single data path.')
     parser.add_argument('--benchmark',
                         type=str,
-                        choices=['executable', 'non-executable']
+                        choices=['executable', 'non-executable'],
                         default='non-executable',
                         help='Benchmark to be evaluated: executable or non-executable')
     parser.add_argument('--dataset_name',
@@ -269,6 +269,9 @@ def parse_args():
                         type=int,
                         default=100,
                         help='Log training loss every N steps.')
+    parser.add_argument('--disable_epoch_eval',
+                        action='store_true',
+                        help='Disable per-epoch evaluation during training.')
     # LoRA related arguments
     parser.add_argument('--lora_dim',
                         type=int,
@@ -303,10 +306,18 @@ def parse_args():
                         type=float,
                         default=0.95,
                         help='Top-p for generation.')
+    parser.add_argument('--top_k',
+                        type=int,
+                        default=-1,
+                        help='Top-k for generation (0 disables top-k sampling).')
     parser.add_argument('--repetition_penalty',
                         type=float,
                         default=1.0,
                         help='Repetition penalty for generation.')
+    parser.add_argument('--num_return_sequences',
+                        type=int,
+                        default=5,
+                        help='Number of generated sequences per prompt.')
     parser.add_argument('--run_name',
                     type=str,
                     required=True,
