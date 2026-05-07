@@ -212,6 +212,10 @@ def parse_args():
                         type=int,
                         default=5,
                         help='Number of generated sequences per prompt.')
+    parser.add_argument('--device',
+                        type=str,
+                        default='auto',
+                        help="Device to run on: auto, cpu, cuda, or cuda:<index>.")
 
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -219,10 +223,23 @@ def parse_args():
     return args
 
 
+def resolve_device(args) -> torch.device:
+    if args.device != "auto":
+        if args.device.startswith("cuda") and not torch.cuda.is_available():
+            print("[WARN] CUDA requested but not available. Falling back to CPU.")
+            return torch.device("cpu")
+        return torch.device(args.device)
+    if torch.cuda.is_available():
+        if args.local_rank is not None and args.local_rank >= 0:
+            return torch.device(f"cuda:{args.local_rank}")
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def main():
     args = parse_args()
     set_random_seed(args.seed)
-    device = torch.device("cuda:0")
+    device = resolve_device(args)
     if args.inference_tasks[0] == "all":
         if args.benchmark == "non-executable":    
             inference_tasks = AllDatasetName
@@ -351,10 +368,19 @@ def main():
         #     continue
 
         tokenizer = load_hf_tokenizer(args.model_name_or_path, fast_tokenizer=True)
+        model_dtype = torch.float16 if device.type == "cuda" else torch.float32
         if "llama" in args.model_name_or_path.lower():
-            model = modeling_llama.LlamaForCausalLM.from_pretrained(args.model_name_or_path, tasks=i+1,torch_dtype=torch.float16)
+            model = modeling_llama.LlamaForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                tasks=i+1,
+                torch_dtype=model_dtype,
+            )
         elif "qwen" in args.model_name_or_path.lower():
-            model = modeling_qwen2.Qwen2ForCausalLM.from_pretrained(args.model_name_or_path, tasks=i+1,torch_dtype=torch.float16)
+            model = modeling_qwen2.Qwen2ForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                tasks=i+1,
+                torch_dtype=model_dtype,
+            )
 
         
         fe_path = hf_hub_download(
@@ -374,7 +400,13 @@ def main():
         
         lora_id = 0
         for lora_path in inference_model_path[:(i+1)]:
-            model.load_adapter(lora_path, adapter_name=f"{lora_id}")
+            model.load_adapter(
+                peft_model_id=args.base_path,
+                adapter_name=f"{lora_id}",
+                adapter_kwargs={
+                    "subfolder": lora_path,
+                },
+            )
             lora_id += 1
         
         model.model.moe_classifier.weight = torch.nn.Parameter(classifier_weight)

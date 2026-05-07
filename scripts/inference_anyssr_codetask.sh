@@ -7,6 +7,8 @@ deepseed_cmd="deepspeed --include=localhost:2 --master_port $port"
 # HF code task order (must match router training)
 HF_TASKS="CONCODE,CodeTrans,CodeSearchNet,BFP,KodCode,RunBugRun,TheVault_Csharp,CoST"
 
+mkdir -p logs
+
 $deepseed_cmd inference/infer_anyssr_total.py \
    --router_weight_path "ankhanhtran02/router_weights_codetask_qwen25_coder_15b" \
    --benchmark non-executable \
@@ -17,5 +19,7 @@ $deepseed_cmd inference/infer_anyssr_total.py \
    --inference_model_path "CONCODE/0","CodeTrans/0","CodeSearchNet/0","BFP/0","KodCode/0","RunBugRun/0","TheVault_Csharp/0","CoST/0" \
    --seed 1234 \
    --deepspeed \
-   --inference_output_path /inference_result
+   --inference_output_path /inference_result \
+   --inference_batch 8 \
+   2>&1 | tee logs/train.log
 
