@@ -272,6 +272,7 @@ def main():
         predicted_sequences = []
         sources_sequences = []
         ground_truths = []
+        moe_ids = []
 
         if max_ans_len is None:
             max_ans_len = getattr(args, "max_ans_len", 256)
@@ -314,6 +315,7 @@ def main():
             prompt_len = batch['input_ids'].shape[1]
 
             with torch.no_grad():
+                global_callback.reset()
                 pad_token_id = tokenizer.pad_token_id
                 if pad_token_id is None:
                     pad_token_id = tokenizer.eos_token_id
@@ -328,6 +330,14 @@ def main():
                     use_cache=True,
                 )
 
+            moe_id = None
+            if global_callback.selected_lora_classes:
+                moe_entry = global_callback.selected_lora_classes[-1]
+                if isinstance(moe_entry, (list, tuple)) and moe_entry:
+                    moe_id = moe_entry[0]
+                else:
+                    moe_id = moe_entry
+
             sequences = tokenizer.batch_decode(
                 generate_ids[:, prompt_len:],
                 skip_special_tokens=True,
@@ -340,14 +350,16 @@ def main():
                     for i in range(0, len(sequences), num_return_sequences)
                 ]
                 predicted_sequences.extend(batch_preds)
+                moe_ids.extend([moe_id] * len(batch_preds))
             else:
                 predicted_sequences += sequences
+                moe_ids.extend([moe_id] * len(sequences))
 
             progress_bar.update(1)
             description = f"Test step {step}"
             progress_bar.set_description(description, refresh=False)
 
-        return sources_sequences, predicted_sequences, ground_truths
+        return sources_sequences, predicted_sequences, ground_truths, moe_ids
 
     def _task_eval_from_predictions(task, sources_sequences, predicted_sequences, ground_truths):
         if task in ['CodeSearchNet', 'TheVault_Csharp']:
@@ -357,17 +369,20 @@ def main():
         return compute_metrics(predicted_sequences, ground_truths, calc_codebleu=calc_codebleu, language=DATASET_TO_OUTPUT_LANG.get(task, None))
     
     def save_inference_results(evaluation_result: dict, sources_sequences: list, predicted_sequences: list,
-                                ground_truths: list, i_task: int, task: str):
+                                ground_truths: list, moe_ids: list, i_task: int, task: str):
         # save as a json file
         df = {"eval": evaluation_result}
         os.makedirs(args.inference_output_path, exist_ok=True)
+        if len(moe_ids) != len(predicted_sequences):
+            moe_ids = (moe_ids + [None] * len(predicted_sequences))[:len(predicted_sequences)]
         prediction_rows = [
             {
                 "source": source,
                 "ground-truth": gt,
                 "prediction": pred,
+                "moe_id": moe_id,
             }
-            for source, gt, pred in zip(sources_sequences, ground_truths, predicted_sequences)
+            for source, gt, pred, moe_id in zip(sources_sequences, ground_truths, predicted_sequences, moe_ids)
         ]
         df["predictions"] = prediction_rows
         output_file = os.path.join(args.inference_output_path, f"results-{i_task}-{task}.json")
@@ -484,7 +499,15 @@ def main():
             
             # Inference !
             print(f"***** Start inference of step {i}: task {inference_task}*****")
-            sources_sequences, predicted_sequences, ground_truths = prediction(model, tokenizer, inference_task, infer_dataloader, device, generation_config, max_ans_len=int(args.max_ans_len[i]))
+            sources_sequences, predicted_sequences, ground_truths, moe_ids = prediction(
+                model,
+                tokenizer,
+                inference_task,
+                infer_dataloader,
+                device,
+                generation_config,
+                max_ans_len=int(args.max_ans_len[i]),
+            )
             # save_inference_results({}, sources_sequences, predicted_sequences, ground_truths, i, inference_task)
             
             # Get BLEU/SmoothBLEU
@@ -499,7 +522,15 @@ def main():
 
             # if args.global_rank <= 0:  # only one process is running
             print("***** Saving inference results *****")
-            save_inference_results(evaluation_result, sources_sequences, predicted_sequences, ground_truths, i, inference_task)
+            save_inference_results(
+                evaluation_result,
+                sources_sequences,
+                predicted_sequences,
+                ground_truths,
+                moe_ids,
+                i,
+                inference_task,
+            )
     
 if __name__ == "__main__":
     main()
