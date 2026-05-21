@@ -337,12 +337,19 @@ def main():
                     moe_id = moe_entry[0]
                 else:
                     moe_id = moe_entry
+            elif getattr(model, "model", None) is not None:
+                moe_label = getattr(model.model, "label", None)
+                if isinstance(moe_label, (list, tuple)) and moe_label:
+                    moe_id = moe_label[0]
+                else:
+                    moe_id = moe_label
 
             sequences = tokenizer.batch_decode(
                 generate_ids[:, prompt_len:],
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=False
             )
+            print(f"Moe ID: {moe_id}")
             # print(f"Predicted sequences: {sequences}")
             if is_executable and num_return_sequences > 1:
                 batch_preds = [
