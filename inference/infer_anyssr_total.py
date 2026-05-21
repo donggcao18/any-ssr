@@ -454,6 +454,8 @@ def main():
         for inference_task_id in range(len(cur_inference_tasks)):
             inference_task = inference_tasks[inference_task_id]
             # Prepare the data
+            if inference_task == "CONCODE":
+                continue
             if args.benchmark == "non-executable":
                 train, test, infer_dataset = create_codetask_dataset(
                     inference_task,
