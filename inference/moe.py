@@ -543,7 +543,7 @@ class NewQwen2Model(Qwen2Model):
 
         for decoder_layer in self.layers:
             if layer_id == (cut_layers) and first:
-                predicted_moe = [str(self.moe_classifier(self.fe(hidden_states.mean(dim=1))).argmax().item())] # 将模型第一层的输出丢到分类器中判别lora归属
+                predicted_moe = [str(self.moe_classifier(self.fe(self.norm(hidden_states).mean(dim=1))[0]).argmax().item())] # 将模型第一层的输出丢到分类器中判别lora归属
                 global_callback.record_lora_class(predicted_moe)
                 
                 self.label = predicted_moe
@@ -585,6 +585,8 @@ class NewQwen2Model(Qwen2Model):
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
+
+            layer_id += 1
 
         hidden_states = self.norm(hidden_states)
 

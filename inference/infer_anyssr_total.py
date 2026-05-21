@@ -344,12 +344,12 @@ def main():
                 else:
                     moe_id = moe_label
 
+            print(f"Predicted MoE ID: {moe_id}")
             sequences = tokenizer.batch_decode(
                 generate_ids[:, prompt_len:],
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=False
             )
-            print(f"Moe ID: {moe_id}")
             # print(f"Predicted sequences: {sequences}")
             if is_executable and num_return_sequences > 1:
                 batch_preds = [
@@ -461,8 +461,6 @@ def main():
         for inference_task_id in range(len(cur_inference_tasks)):
             inference_task = inference_tasks[inference_task_id]
             # Prepare the data
-            if inference_task == "CONCODE":
-                continue
             if args.benchmark == "non-executable":
                 train, test, infer_dataset = create_codetask_dataset(
                     inference_task,
