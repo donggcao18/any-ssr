@@ -11,3 +11,5 @@ logs/
 .vscode/
 .cache/
 output_models/
+draft.py
+inference_result*

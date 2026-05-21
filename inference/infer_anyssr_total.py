@@ -422,7 +422,15 @@ def main():
                 },
             )
             lora_id += 1
+        # Print out all successfully registered adapter names
+        print("Successfully loaded adapters:", model.peft_config.keys())
 
+        lora_params = [name for name, _ in model.named_parameters() if "lora" in name]
+        print(f"Total LoRA tensors found in memory: {len(lora_params)}")
+
+        # Print a quick sample to see their names
+        if lora_params:
+            print("Sample LoRA layer path:", lora_params[0])
         model.model.moe_classifier.weight = torch.nn.Parameter(classifier_weight)
         model.model.fe.weight = torch.nn.Parameter(fe_weight)        
         model.to(device)

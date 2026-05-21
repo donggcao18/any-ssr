@@ -3,9 +3,9 @@ set -euo pipefail
 
 BASE_PATH="/U_PZL2023ZZ0005/rhe/Any-SSR/output_models"
 port=$(shuf -i25000-30000 -n1)
-GPU_ID="${GPU_ID:-0}"
-INFERENCE_BATCH="${INFERENCE_BATCH:-32}"
-OUTPUT_DIR="${OUTPUT_DIR:-inference_result_anyssr_codetask}"
+GPU_ID="${GPU_ID:-1}"
+INFERENCE_BATCH="${INFERENCE_BATCH:-1}"
+OUTPUT_DIR="${OUTPUT_DIR:-inference_result_anyssr_codetask_test_2}"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export DS_ACCELERATOR=cuda

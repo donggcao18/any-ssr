@@ -496,17 +496,14 @@ class NewQwen2Model(Qwen2Model):
 
         # kept for BC (non `Cache` `past_key_values` inputs)
         return_legacy_cache = False
-        if use_cache and not isinstance(past_key_values, Cache):
+        if (use_cache and not isinstance(past_key_values, Cache) and not self.training):
             return_legacy_cache = True
-            if past_key_values is None:
-                past_key_values = DynamicCache()
-            else:
-                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
-                logger.warning_once(
-                    "We detected that you are passing `past_key_values` as a tuple of tuples. This is deprecated and "
-                    "will be removed in v4.47. Please convert your cache or use an appropriate `Cache` class "
-                    "(https://huggingface.co/docs/transformers/kv_cache#legacy-cache-format)"
-                )
+            past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+            logger.warning_once(
+                "We detected that you are passing `past_key_values` as a tuple and this is deprecated and will be removed in v4.43. "
+                "Please use an appropriate `Cache` class (https://huggingface.co/docs/transformers/v4.41.3/en/internal/generation_utils#transformers.Cache)"
+            )
+
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
@@ -546,7 +543,7 @@ class NewQwen2Model(Qwen2Model):
 
         for decoder_layer in self.layers:
             if layer_id == (cut_layers) and first:
-                predicted_moe = [str(self.moe_classifier(self.fe(hidden_states.mean(dim=1))[0]).argmax().item())] # 将模型第一层的输出丢到分类器中判别lora归属
+                predicted_moe = [str(self.moe_classifier(self.fe(self.norm(hidden_states).mean(dim=1))[0]).argmax().item())] # 将模型第一层的输出丢到分类器中判别lora归属
                 global_callback.record_lora_class(predicted_moe)
                 
                 self.label = predicted_moe
@@ -946,9 +943,9 @@ class NewQwen2SdpaAttention(Qwen2SdpaAttention):
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
 
-        query_states = query_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         if position_embeddings is None:
             logger.warning_once(
