@@ -202,7 +202,7 @@ def parse_args():
                         help='Top-p for generation.')
     parser.add_argument('--top_k',
                         type=int,
-                        default=-1,
+                        default=0,
                         help='Top-k for generation (0 disables top-k sampling).')
     parser.add_argument('--repetition_penalty',
                         type=float,
@@ -350,7 +350,6 @@ def main():
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=False
             )
-            # print(f"Predicted sequences: {sequences}")
             if is_executable and num_return_sequences > 1:
                 batch_preds = [
                     sequences[i:i + num_return_sequences]
@@ -460,6 +459,8 @@ def main():
         cur_inference_tasks = inference_tasks[0:i+1]
         for inference_task_id in range(len(cur_inference_tasks)):
             inference_task = inference_tasks[inference_task_id]
+            if inference_task not in ("CoST",):
+                continue
             # Prepare the data
             if args.benchmark == "non-executable":
                 train, test, infer_dataset = create_codetask_dataset(
