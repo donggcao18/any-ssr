@@ -353,6 +353,9 @@ def parse_args():
                     type=int,
                     default=0,
                     help='Start training from this task id (for SeqLoRA resume).')
+    parser.add_argument('--infer_only',
+                    action='store_true',
+                    help='Only run inference on the evaluation/test sets without training.')
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
 
@@ -541,6 +544,19 @@ def main():
         peft_config.target_modules = filtered_names
 
         model = get_peft_model(model, peft_config)
+
+        if args.infer_only:
+            adapter_name = f"task_{args.dataset_name[0]}"
+            model.load_adapter(
+                peft_model_id="dongg18/anamoe",
+                adapter_name=adapter_name,
+                adapter_kwargs={
+                    "subfolder": f"{args.dataset_name[0]}/0"
+                },
+                is_trainable=False
+            )
+            model.set_adapter(adapter_name)
+            
         # for name, param in model.named_parameters():
         #     if name.find("lora") != -1:
         #         param.requires_grad = True
@@ -777,10 +793,10 @@ def main():
 
     # Initialize the global progress bar
 
-    if args.CL_method in Method2Class.keys():
+    if args.CL_method in Method2Class.keys() and not args.infer_only:
         CL_Trainer = Method2Class[args.CL_method](model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
         CL_Trainer.train_continual()
-    elif args.CL_method == "infer_base":
+    elif args.CL_method == "infer_base" or args.infer_only:
         CL_Trainer = Method2Class["base"](model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
         CL_Trainer.test_all_tasks_and_save_predictions()
 
