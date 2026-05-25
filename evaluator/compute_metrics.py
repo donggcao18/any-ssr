@@ -158,85 +158,32 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    print("Running synthetic metric checks for both CodeBLEU-off and CodeBLEU-on settings...\n")
+    import argparse as _ap
+    _p = _ap.ArgumentParser(add_help=False)
+    _p.add_argument("json_files", nargs="+", default=None,
+                    help="Path to a predictions JSON file to evaluate.")
+    _p.add_argument("--dataset", type=str, default=None,
+                    help="Dataset name (e.g. BFP, CONCODE) to pick language and CodeBLEU policy.")
+    _cli, _ = _p.parse_known_args()
 
-    # 1) Direct check with calc_codebleu=False (summarization-style output).
-    preds_no_codebleu = [
-        "returns the maximum value in the list",
-        "parses a json string into an object",
-    ]
-    refs_no_codebleu = [
-        "returns max value from the list",
-        "parse a json string into object",
-    ]
-    metrics_no_codebleu = compute_metrics(
-        preds_no_codebleu,
-        refs_no_codebleu,
-        calc_codebleu=False,
-        language=None,
-    )
-    print("=== Direct compute_metrics (calc_codebleu=False) ===")
-    print(metrics_no_codebleu)
+    if _cli.json_files:
+        _data = {}
+        for json_file in _cli.json_files:
+            with open(json_file, "r", encoding="utf-8") as _f:
+                _data.update(json.load(_f))
+            _preds = [item["prediction"] for item in _data["predictions"]]
+            _refs  = [item["ground-truth"] for item in _data["predictions"]]
+            _ds = _cli.dataset
+            if _ds in ("CodeSearchNet", "TheVault_Csharp"):
+                _calc_cb, _lang = False, None
+            elif _ds in DATASET_TO_OUTPUT_LANG:
+                _calc_cb, _lang = True, DATASET_TO_OUTPUT_LANG[_ds]
+            else:
+                _calc_cb, _lang = False, None
+            _metrics = compute_metrics(_preds, _refs, calc_codebleu=_calc_cb, language=_lang)
+            print(f"Computed : {_metrics}")
+            if "eval" in _data:
+                print(f"Stored   : {_data['eval']}")
+        
+        import sys; sys.exit(0)
 
-    # 2) Direct check with calc_codebleu=True (code generation/translation-style output).
-    preds_with_codebleu = [
-        "public static int add(int a, int b) { return a + b; }",
-        "public static boolean isEven(int x) { return x % 2 == 0; }",
-    ]
-    refs_with_codebleu = [
-        "public static int add(int a, int b) { return a + b; }",
-        "public static boolean isEven(int n) { return n % 2 == 0; }",
-    ]
-    metrics_with_codebleu = compute_metrics(
-        preds_with_codebleu,
-        refs_with_codebleu,
-        calc_codebleu=True,
-        language="java",
-    )
-    print("\n=== Direct compute_metrics (calc_codebleu=True, language='java') ===")
-    print(metrics_with_codebleu)
-
-    # 3) Grouped check: uses dataset policy in compute_grouped_metrics:
-    #    - CodeSearchNet / TheVault_Csharp => calc_codebleu=False
-    #    - Other groups (e.g., CodeTrans, BFP) => calc_codebleu=True
-    synthetic_examples = [
-        {
-            "dataset": "CodeSearchNet",
-            "prediction": "returns the sum of two numbers",
-            "reference": "return sum of two numbers",
-        },
-        {
-            "dataset": "TheVault_Csharp",
-            "prediction": "validates user input and throws exception",
-            "reference": "validate user input and throw exception",
-        },
-        {
-            "dataset": "CodeTrans",
-            "prediction": "public static int square(int x) { return x * x; }",
-            "reference": "public static int square(int n) { return n * n; }",
-        },
-        {
-            "dataset": "BFP",
-            "prediction": "for (int i = 0; i < arr.length; i++) { sum += arr[i]; }",
-            "reference": "for (int i = 0; i < arr.length; i++) { total += arr[i]; }",
-        },
-    ]
-
-    grouped_predictions = [e["prediction"] for e in synthetic_examples]
-    grouped_references = [e["reference"] for e in synthetic_examples]
-    grouped_datasets = [e["dataset"] for e in synthetic_examples]
-
-    grouped_metrics = compute_grouped_metrics(
-        grouped_predictions,
-        grouped_references,
-        grouped_datasets,
-    )
-
-    print("\n=== Grouped metrics by dataset (mixed CodeBLEU policy) ===")
-    for k in sorted(grouped_metrics.keys()):
-        print(f"{k}: {grouped_metrics[k]}")
-
-    print("\n=== Dataset -> output language (from task_info) ===")
-    for ds_name in sorted(set(grouped_datasets)):
-        output_lang = DATASET_TO_OUTPUT_LANG.get(ds_name, "N/A")
-        print(f"{ds_name}: {output_lang}")
