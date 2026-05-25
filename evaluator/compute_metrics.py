@@ -158,22 +158,34 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    import argparse as _ap
-    _p = _ap.ArgumentParser(add_help=False)
-    _p.add_argument("json_files", nargs="+", default=None,
-                    help="Path to a predictions JSON file to evaluate.")
-    _p.add_argument("--dataset", type=str, default=None,
-                    help="Dataset name (e.g. BFP, CONCODE) to pick language and CodeBLEU policy.")
-    _cli, _ = _p.parse_known_args()
+    AllDatasetName = ["CONCODE",
+                    "CodeTrans",
+                    "CodeSearchNet",
+                    "BFP",
+                    "KodCode",
+                    "RunBugRun",
+                    "TheVault_Csharp",
+                    "CoST"]
 
-    if _cli.json_files:
-        _data = {}
-        for json_file in _cli.json_files:
+    AllDatasetNameExecutable = ['python',
+                                'cpp',
+                                'swift',
+                                'rust',
+                                'csharp',
+                                'java',
+                                'php',
+                                'typescript',
+                                'shell'] 
+    for dataset in AllDatasetName:
+        print("Dataset  : ", dataset)
+        json_files = [f"inference_result_anyssr_codetask_test_4/results-7-{dataset}.json", f"output_models/anamoe/{dataset}/predictions/final-test/0_{dataset}.json"]
+        for json_file in json_files:
+            _data = {}
             with open(json_file, "r", encoding="utf-8") as _f:
                 _data.update(json.load(_f))
             _preds = [item["prediction"] for item in _data["predictions"]]
             _refs  = [item["ground-truth"] for item in _data["predictions"]]
-            _ds = _cli.dataset
+            _ds = dataset
             if _ds in ("CodeSearchNet", "TheVault_Csharp"):
                 _calc_cb, _lang = False, None
             elif _ds in DATASET_TO_OUTPUT_LANG:
@@ -184,6 +196,7 @@ if __name__ == "__main__":
             print(f"Computed : {_metrics}")
             if "eval" in _data:
                 print(f"Stored   : {_data['eval']}")
-        
-        import sys; sys.exit(0)
+        print("-" * 50)
+    
+    import sys; sys.exit(0)
 
