@@ -23,6 +23,15 @@ class MTL(CL_Base_Model):
         progress_bar = tqdm(total=total_steps, leave=True, disable=(self.args.global_rank != 0))
         global_step = 0
 
+        if self.args.global_rank == 0:
+            train_sampler = getattr(train_dataloader, "sampler", None)
+            _it = iter(train_sampler) if train_sampler is not None else None
+            peek = [next(_it) for _ in range(min(8, len(train_dataloader.dataset)))] if _it else []
+            print_rank_0(
+                f"[MTL] dataset_size={len(train_dataloader.dataset)} sampler={type(train_sampler).__name__} first_8_indices={peek}",
+                self.args.global_rank,
+            )
+
         for epoch in range(epochs):
             train_sampler = getattr(train_dataloader, "sampler", None)
             if hasattr(train_sampler, "set_epoch"):
@@ -37,6 +46,7 @@ class MTL(CL_Base_Model):
             for step, batch in enumerate(train_dataloader):
                 global_step += 1
                 del batch["sources"]
+                batch.pop("indices", None)
                 batch = to_device(batch, device)
                 with torch.amp.autocast("cuda", enabled=use_fp16):
                     outputs = self.model(**batch, use_cache=False)
