@@ -144,7 +144,7 @@ def DFG_python(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -159,7 +159,7 @@ def DFG_python(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states        
@@ -294,7 +294,7 @@ def DFG_java(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -321,7 +321,7 @@ def DFG_java(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -336,7 +336,7 @@ def DFG_java(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states        
@@ -474,7 +474,7 @@ def DFG_csharp(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -501,7 +501,7 @@ def DFG_csharp(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -516,7 +516,7 @@ def DFG_csharp(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states        
@@ -663,7 +663,7 @@ def DFG_ruby(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -678,7 +678,7 @@ def DFG_ruby(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states        
@@ -820,7 +820,7 @@ def DFG_go(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -960,7 +960,7 @@ def DFG_php(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -993,7 +993,7 @@ def DFG_php(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -1008,7 +1008,7 @@ def DFG_php(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states        
@@ -1148,7 +1148,7 @@ def DFG_javascript(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states
@@ -1163,7 +1163,7 @@ def DFG_javascript(root_node,index_to_code,states):
             if (x[0],x[1],x[2]) not in dic:
                 dic[(x[0],x[1],x[2])]=[x[3],x[4]]
             else:
-                dic[(x[0],x[1],x[2])][0]=list(set(dic[(x[0],x[1],x[2])][0]+x[3]))
+                dic[(x[0],x[1],x[2])][0]=sorted(set(dic[(x[0],x[1],x[2])][0]+x[3]))
                 dic[(x[0],x[1],x[2])][1]=sorted(list(set(dic[(x[0],x[1],x[2])][1]+x[4])))
         DFG=[(x[0],x[1],x[2],y[0],y[1]) for x,y in sorted(dic.items(),key=lambda t:t[0][1])]
         return sorted(DFG,key=lambda x:x[1]),states    

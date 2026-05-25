@@ -128,7 +128,7 @@ def normalize_dataflow_item(dataflow_item):
     par_vars_name_list = dataflow_item[3]
     par_vars_pos_list = dataflow_item[4]
 
-    var_names = list(set(par_vars_name_list + [var_name]))
+    var_names = sorted(set(par_vars_name_list + [var_name]))
     norm_names = {}
     for i in range(len(var_names)):
         norm_names[var_names[i]] = 'var_' + str(i)
