@@ -195,7 +195,13 @@ if __name__ == "__main__":
             _metrics = compute_metrics(_preds, _refs, calc_codebleu=_calc_cb, language=_lang)
             print(f"Computed : {_metrics}")
             if "eval" in _data:
-                print(f"Stored   : {_data['eval']}")
+                _data["eval"] = _metrics
+                with open(json_file, "w", encoding="utf-8") as _f:
+                    json.dump(_data, _f, ensure_ascii=False, indent=2)
+            elif "metrics" in _data:
+                _data["metrics"] = _metrics
+                with open(json_file, "w", encoding="utf-8") as _f:
+                    json.dump(_data, _f, ensure_ascii=False, indent=2)
         print("-" * 50)
     
     import sys; sys.exit(0)
