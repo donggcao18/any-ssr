@@ -519,31 +519,7 @@ def main():
                 )
 
     if args.CL_method == "anamoe":
-        from peft import get_peft_model, LoraConfig, TaskType
-        
-        peft_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM, r=args.lora_dim, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout
-        )
 
-        names = [name for name, param in model.named_parameters()]
-
-        start = args.start_layer  # Anamoe starts from this layer (inclusive)
-        end = 28  # Qwen2.5-Coder-1.5B has 28 layers (0-27)
-        # filtered_names = [name for name in names if start <= int(name.split('.')[2]) < end]
-
-        filtered_names = [
-            name[:-7] for name in names
-            if name.startswith("model.layers.")  # 确保是层相关的内容
-            and start <= int(name.split('.')[2]) < end  # 检查层号是否在范围内
-        ]
-
-        filtered_names = [name for name in filtered_names if 'layernorm' not in name]
-        filtered_names = [name for name in filtered_names if 'k_proj' not in name]
-        filtered_names = [name for name in filtered_names if 'o_proj' not in name]
-        filtered_names = [name for name in filtered_names if 'mlp' not in name]
-        peft_config.target_modules = filtered_names
-
-        model = get_peft_model(model, peft_config)
 
         if args.infer_only:
             adapter_name = f"task_{args.dataset_name[0]}"
@@ -556,6 +532,33 @@ def main():
                 is_trainable=False
             )
             model.set_adapter(adapter_name)
+
+        else:
+            from peft import get_peft_model, LoraConfig, TaskType
+        
+            peft_config = LoraConfig(
+                task_type=TaskType.CAUSAL_LM, r=args.lora_dim, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout
+            )
+
+            names = [name for name, param in model.named_parameters()]
+
+            start = args.start_layer  # Anamoe starts from this layer (inclusive)
+            end = 28  # Qwen2.5-Coder-1.5B has 28 layers (0-27)
+            # filtered_names = [name for name in names if start <= int(name.split('.')[2]) < end]
+
+            filtered_names = [
+                name[:-7] for name in names
+                if name.startswith("model.layers.")  # 确保是层相关的内容
+                and start <= int(name.split('.')[2]) < end  # 检查层号是否在范围内
+            ]
+
+            filtered_names = [name for name in filtered_names if 'layernorm' not in name]
+            filtered_names = [name for name in filtered_names if 'k_proj' not in name]
+            filtered_names = [name for name in filtered_names if 'o_proj' not in name]
+            filtered_names = [name for name in filtered_names if 'mlp' not in name]
+            peft_config.target_modules = filtered_names
+
+            model = get_peft_model(model, peft_config)
             
         # for name, param in model.named_parameters():
         #     if name.find("lora") != -1:
