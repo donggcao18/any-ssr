@@ -113,7 +113,7 @@ def get_data_flow(code, parser):
         if d[1] not in dic:
             dic[d[1]] = d
         else:
-            dic[d[1]] = (d[0], d[1], d[2], list(set(dic[d[1]][3] + d[3])), list(set(dic[d[1]][4] + d[4])))
+            dic[d[1]] = (d[0], d[1], d[2], sorted(set(dic[d[1]][3] + d[3])), sorted(set(dic[d[1]][4] + d[4])))
     DFG = []
     for d in dic:
         DFG.append(dic[d])
