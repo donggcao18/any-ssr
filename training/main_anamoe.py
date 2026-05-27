@@ -353,6 +353,11 @@ def parse_args():
                     type=int,
                     default=0,
                     help='Start training from this task id (for SeqLoRA resume).')
+    parser.add_argument('--alpha',
+                    type=float,
+                    default=0.5,
+                    help='SeqSSR-LoRA: mixing coefficient in [0,1]. '
+                         'W_eff = W0 + alpha*delta_W_shared + (1-alpha)*delta_W_task.')
     parser.add_argument('--infer_only',
                     action='store_true',
                     help='Only run inference on the evaluation/test sets without training.')
@@ -570,6 +575,121 @@ def main():
         #     if not re.match(peft_pattern, name) and name not in ['base_model.model.model.norm.weight', 'base_model.model.lm_head.weight']:
         #         param.requires_grad = False
     
+    if args.CL_method == "seqssr_lora":
+        from peft import get_peft_model, LoraConfig, TaskType, PeftModel
+        from model.seqssr_lora import apply_seqssr_patches
+
+        alpha = args.alpha
+        if not (0.0 <= alpha <= 1.0):
+            raise ValueError(f"--alpha must be in [0, 1], got {alpha}")
+
+        # Apply PEFT patches for multi-adapter forward (idempotent)
+        apply_seqssr_patches()
+
+        # Determine task list to compute the number of tasks for adapter setup
+        if args.dataset_name[0] == "all":
+            _all_tasks = AllDatasetNameExecutable if args.benchmark == "executable" else AllDatasetName
+        else:
+            _all_tasks = args.dataset_name
+
+        # Build target modules: same filter as anamoe (layers start_layer..27,
+        # only q_proj + v_proj, skip layernorm / k_proj / o_proj / mlp)
+        _names = [name for name, _ in model.named_parameters()]
+        _start = args.start_layer
+        _end = 28
+        _filtered = [
+            name[:-7] for name in _names
+            if name.startswith("model.layers.")
+            and _start <= int(name.split(".")[2]) < _end
+        ]
+        _filtered = [n for n in _filtered if "layernorm" not in n]
+        _filtered = [n for n in _filtered if "k_proj"    not in n]
+        _filtered = [n for n in _filtered if "o_proj"    not in n]
+        _filtered = [n for n in _filtered if "mlp"       not in n]
+
+        t = args.start_task_id
+
+        # lora_alpha for each adapter encodes the alpha weighting so that
+        # the combined scaling is automatically correct after checkpoint load.
+        shared_lora_alpha = alpha * args.lora_alpha          # alpha   * standard
+        task_lora_alpha   = (1.0 - alpha) * args.lora_alpha  # (1-alpha)* standard
+
+        _shared_cfg = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=args.lora_dim,
+            lora_alpha=shared_lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=_filtered,
+        )
+        _task_cfg = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=args.lora_dim,
+            lora_alpha=task_lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=_filtered,
+        )
+
+        if t == 0:
+            # Fresh start: create the shared adapter
+            model = get_peft_model(model, _shared_cfg, adapter_name="shared")
+        else:
+            # Resume: load shared adapter trained up to task t-1
+            _shared_ckpt = os.path.join(args.output_dir, str(t - 1), "shared")
+            if os.path.isdir(_shared_ckpt):
+                model = PeftModel.from_pretrained(
+                    model, _shared_ckpt,
+                    adapter_name="shared",
+                    is_trainable=True,
+                )
+                print_rank_0(
+                    f"[SeqSSR-LoRA] Loaded shared adapter from {_shared_ckpt}",
+                    args.global_rank,
+                )
+            else:
+                raise FileNotFoundError(
+                    f"[SeqSSR-LoRA] Cannot resume: shared checkpoint not found "
+                    f"at {_shared_ckpt}"
+                )
+            # Load past task-specific adapters (frozen) for evaluation
+            for prev_t in range(t):
+                _task_ckpt = os.path.join(
+                    args.output_dir, str(prev_t), f"task_{prev_t}"
+                )
+                if os.path.isdir(_task_ckpt):
+                    model.load_adapter(
+                        _task_ckpt,
+                        adapter_name=f"task_{prev_t}",
+                        is_trainable=False,
+                    )
+                    print_rank_0(
+                        f"[SeqSSR-LoRA] Loaded frozen task_{prev_t} from {_task_ckpt}",
+                        args.global_rank,
+                    )
+                else:
+                    print_rank_0(
+                        f"[SeqSSR-LoRA] Warning: task_{prev_t} checkpoint not found "
+                        f"at {_task_ckpt}; creating a zero-initialized placeholder.",
+                        args.global_rank,
+                    )
+                    model.add_adapter(f"task_{prev_t}", _task_cfg)
+                    for _n, _p in model.named_parameters():
+                        if f"task_{prev_t}" in _n and "lora_" in _n:
+                            _p.requires_grad = False
+
+        # Create a fresh task-specific adapter for the current task t
+        model.add_adapter(f"task_{t}", _task_cfg)
+
+        # Activate [shared, task_t] — both trainable, all others frozen
+        model.base_model.set_adapter(["shared", f"task_{t}"])
+
+        # Sanity check: log effective alpha values
+        print_rank_0(
+            f"[SeqSSR-LoRA] alpha={alpha:.4f}  "
+            f"shared lora_alpha={shared_lora_alpha:.4f}  "
+            f"task lora_alpha={task_lora_alpha:.4f}",
+            args.global_rank,
+        )
+
     train_task_list = {}
     eval_task_list = {}
     test_task_list = {}
