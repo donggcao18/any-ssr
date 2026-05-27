@@ -193,12 +193,14 @@ if __name__ == "__main__":
             else:
                 _calc_cb, _lang = False, None
             _metrics = compute_metrics(_preds, _refs, calc_codebleu=_calc_cb, language=_lang)
-            print(f"Computed : {_metrics}")
+
             if "eval" in _data:
+                print(f"Computed any-ssr: {_metrics}")
                 _data["eval"] = _metrics
                 with open(json_file, "w", encoding="utf-8") as _f:
                     json.dump(_data, _f, ensure_ascii=False, indent=2)
             elif "metrics" in _data:
+                print(f"Computed anamoe: {_metrics}")
                 _data["metrics"] = _metrics
                 with open(json_file, "w", encoding="utf-8") as _f:
                     json.dump(_data, _f, ensure_ascii=False, indent=2)

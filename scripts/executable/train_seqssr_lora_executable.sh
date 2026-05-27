@@ -17,10 +17,10 @@ export HF_DATASETS_CACHE=./.cache
 
 set -euo pipefail
 
-ALPHA="${ALPHA:-0.5}"
-GPU_IDS="${GPU_IDS:-0,1,2,3}"
+ALPHA="${ALPHA:-0.75}"
+GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
 MODEL="${MODEL:-Qwen/Qwen2.5-Coder-1.5B}"
-OUTPUT_DIR="${OUTPUT_DIR:-./output_models/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable}"
+OUTPUT_DIR="${OUTPUT_DIR:-./output_models/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable_alpha_${ALPHA}}"
 START_TASK_ID="${START_TASK_ID:-0}"
 
 export CUDA_VISIBLE_DEVICES="$GPU_IDS"
@@ -51,8 +51,8 @@ for (( t=START_TASK_ID; t<NUM_TASKS; t++ )); do
     --CL_method seqssr_lora \
     --alpha "$ALPHA" \
     --output_dir "$OUTPUT_DIR" \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 8 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 4 \
     --temperature 0.2 \
     --top_p 0.95 \
@@ -60,7 +60,7 @@ for (( t=START_TASK_ID; t<NUM_TASKS; t++ )); do
     --do_sample \
     --num_train -1 \
     --num_eval 3 \
-    --num_test -1 \
+    --num_test 1 \
     --run_name "run_task${t}" \
     --group_name "SeqSSRLoRA_a${ALPHA}_${MODEL##*/}_executable" \
     --max_prompt_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
@@ -71,7 +71,7 @@ for (( t=START_TASK_ID; t<NUM_TASKS; t++ )); do
 
 done
 
-: "${HF_MODEL_REPO_ID:=ankhanhtran02/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable}"
+: "${HF_MODEL_REPO_ID:=ankhanhtran02/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable_alpha_${ALPHA}}"
 
 python upload_output_to_hf.py \
   --output-dir "$OUTPUT_DIR" \

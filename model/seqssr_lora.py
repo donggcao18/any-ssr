@@ -234,46 +234,22 @@ class SeqSSRLoRA(lora):
                 self.model.backward(loss)
                 self.model.step()
 
-            # Per-epoch evaluation on current task
-            print_rank_0(
-                f"***** Evaluating, Epoch {epoch+1}/{epochs}, task={task} *****",
-                self.args.global_rank,
-            )
-            eval_result, eval_preds = self.task_generation_evaluation(
-                task, eval_dataloader, device,
-                max_ans_len=self._resolve_max_ans_len(i_task),
-                return_predictions=True,
-            )
-            print_rank_0(
-                f"[task={task}] val: {eval_result}", self.args.global_rank
-            )
-            self._save_generation_predictions(
-                f"eval-epoch{epoch+1}", i_task, task, eval_result, eval_preds
-            )
-
-        # After all training epochs: test on all tasks seen so far,
-        # switching to the appropriate adapter pair for each.
-        for seen_idx, (test_task, test_ds) in enumerate(
-            list(self.test_task_list.items())[: i_task + 1]
-        ):
-            self._switch_to(seen_idx)
-            self.model.eval()
-            print_rank_0(
-                f"***** Testing on {test_task} after training {task} *****",
-                self.args.global_rank,
-            )
-            test_result, test_preds = self.task_generation_evaluation(
-                test_task, test_ds, device,
-                max_ans_len=self._resolve_max_ans_len(seen_idx),
-                return_predictions=True,
-            )
-            print_rank_0(
-                f"[task={test_task}] post-train test: {test_result}",
-                self.args.global_rank,
-            )
-            self._save_generation_predictions(
-                "test-after-task", i_task, test_task, test_result, test_preds
-            )
+        # Per-epoch evaluation on current task
+        print_rank_0(
+            f"***** Evaluating task={task} *****",
+            self.args.global_rank,
+        )
+        eval_result, eval_preds = self.task_generation_evaluation(
+            task, eval_dataloader, device,
+            max_ans_len=self._resolve_max_ans_len(i_task),
+            return_predictions=True,
+        )
+        print_rank_0(
+            f"[task={task}] val: {eval_result}", self.args.global_rank
+        )
+        self._save_generation_predictions(
+            f"eval-after-task", i_task, task, eval_result, eval_preds
+        )
 
         # Restore current task adapters
         self._switch_to(i_task)
