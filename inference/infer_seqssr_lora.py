@@ -352,15 +352,17 @@ def main():
         fe_weight = torch.load(fe_path, map_location="cpu").to(model_dtype)
         classifier_weight = torch.load(router_path, map_location="cpu").transpose(0, 1).to(model_dtype)
 
-        # Load shared adapter from the final step's checkpoint
+        # Load shared adapter from the final step's checkpoint.
+        # Use load_adapter (in-place) so model stays as NewQwen2ForCausalLM and
+        # model.model still points to NewQwen2Model (which holds fe / moe_classifier).
         shared_ckpt = os.path.join(args.checkpoint_dir, str(i), "shared")
-        model = PeftModel.from_pretrained(model, shared_ckpt, adapter_name="shared", is_trainable=False)
+        model.load_adapter(shared_ckpt, adapter_name="shared")
         print(f"[INFO] Loaded shared adapter from {shared_ckpt}", flush=True)
 
         # Load task-specific adapters for tasks 0..i
         for t in range(i + 1):
             task_ckpt = os.path.join(args.checkpoint_dir, str(t), f"task_{t}")
-            model.load_adapter(task_ckpt, adapter_name=f"task_{t}", is_trainable=False)
+            model.load_adapter(task_ckpt, adapter_name=f"task_{t}")
             print(f"[INFO] Loaded task_{t} adapter from {task_ckpt}", flush=True)
 
         print("Successfully loaded adapters:", list(model.peft_config.keys()))
