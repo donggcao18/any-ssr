@@ -258,13 +258,14 @@ def main():
             if global_callback.selected_lora_classes:
                 moe_entry = global_callback.selected_lora_classes[-1]
                 if isinstance(moe_entry, (list, tuple)) and moe_entry:
-                    moe_id = moe_entry[0]
+                    # predicted_moe is ["shared", "task_k"]; report the task adapter (last)
+                    moe_id = moe_entry[-1]
                 else:
                     moe_id = moe_entry
             elif getattr(model, "model", None) is not None:
                 moe_label = getattr(model.model, "label", None)
                 if isinstance(moe_label, (list, tuple)) and moe_label:
-                    moe_id = moe_label[0]
+                    moe_id = moe_label[-1]
                 else:
                     moe_id = moe_label
 
