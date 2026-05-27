@@ -18,7 +18,7 @@ export HF_DATASETS_CACHE=./.cache
 
 set -euo pipefail
 
-ALPHA="${ALPHA:-0.75}"
+ALPHA="${ALPHA:-0.5}"
 GPU_ID="${GPU_ID:-0}"
 INFERENCE_BATCH="${INFERENCE_BATCH:-1}"
 MODEL="${MODEL:-Qwen/Qwen2.5-Coder-1.5B}"
@@ -31,13 +31,13 @@ port=$(shuf -i25000-30000 -n1)
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export DS_ACCELERATOR=cuda
 
-mkdir -p logs
+mkdir -p $OUTPUT_DIR
 
 deepspeed --include=localhost:"${GPU_ID}" --master_port "$port" inference/infer_seqssr_lora.py \
     --router_weight_path "$ROUTER_WEIGHT_PATH" \
     --benchmark executable \
     --data_path "" \
-    --inference_tasks all \
+    --inference_tasks python,cpp,swift,rust,csharp \
     --model_name_or_path "$MODEL" \
     --checkpoint_dir "$CHECKPOINT_DIR" \
     --seed 1234 \
@@ -48,4 +48,4 @@ deepspeed --include=localhost:"${GPU_ID}" --master_port "$port" inference/infer_
     --do_sample \
     --max_prompt_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
     --max_ans_len    2048,2048,2048,2048,2048,2048,2048,2048,2048 \
-    2>&1 | tee logs/inference_result_seqssr_lora_executable.log
+    2>&1 | tee $OUTPUT_DIR/eval.log
