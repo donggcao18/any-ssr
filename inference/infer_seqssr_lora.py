@@ -383,10 +383,10 @@ def main():
             # Prepare the data
             if args.benchmark == "non-executable":
                 train, test, infer_dataset = create_codetask_dataset(
-                    inference_task, args.seed, -1, -1, 3)
+                    inference_task, args.seed, -1, -1, -1)
             else:
                 train, test, infer_dataset = create_executable_dataset(
-                    inference_task, args.seed, -1, -1, 3)
+                    inference_task, args.seed, -1, -1, -1)
 
             inf_data_collator = DataCollator(
                 tokenizer,
