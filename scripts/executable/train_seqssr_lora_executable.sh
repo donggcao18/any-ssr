@@ -21,7 +21,7 @@ ALPHA="${ALPHA:-0.75}"
 GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
 MODEL="${MODEL:-Qwen/Qwen2.5-Coder-1.5B}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output_models/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable_alpha_${ALPHA}}"
-START_TASK_ID="${START_TASK_ID:-0}"
+START_TASK_ID="${START_TASK_ID:-4}"
 
 export CUDA_VISIBLE_DEVICES="$GPU_IDS"
 
