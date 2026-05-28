@@ -89,6 +89,12 @@ def parse_args():
         default="non-executable",
         help="Benchmark to be evaluated: executable or non-executable.",
     )
+    parser.add_argument(
+        "--gamma",
+        type=int,
+        default=gamma_global,
+        help="Gamma value for RLS algorithm.",
+    )
     return parser.parse_args()
 
 
@@ -236,7 +242,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
         pass
 
 
-def load_model_and_tokenizer(model_name_or_path):
+def load_model_and_tokenizer(model_name_or_path, gamma_global=gamma_global):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -260,9 +266,9 @@ def load_model_and_tokenizer(model_name_or_path):
 def train(args):
     num_epochs = 1
     max_length = 150
+    gamma_global = args.gamma
 
-
-    model, tokenizer = load_model_and_tokenizer(args.model_name_or_path)
+    model, tokenizer = load_model_and_tokenizer(args.model_name_or_path, gamma_global)
     tokenizer.pad_token = tokenizer.eos_token
 
     for name, param in model.named_parameters():

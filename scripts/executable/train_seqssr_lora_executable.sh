@@ -17,11 +17,11 @@ export HF_DATASETS_CACHE=./.cache
 
 set -euo pipefail
 
-ALPHA="${ALPHA:-0.5}"
+ALPHA="${ALPHA:-0.25}"
 GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6}"
 MODEL="${MODEL:-Qwen/Qwen2.5-Coder-1.5B}"
-OUTPUT_DIR="${OUTPUT_DIR:-./output_models/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable}"
-START_TASK_ID="${START_TASK_ID:-4}"
+OUTPUT_DIR="${OUTPUT_DIR:-./output_models/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable_alpha_${ALPHA}}"
+START_TASK_ID="${START_TASK_ID:-3}"
 
 export CUDA_VISIBLE_DEVICES="$GPU_IDS"
 

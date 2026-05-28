@@ -89,6 +89,12 @@ def parse_args():
         default="non-executable",
         help="Benchmark to be evaluated: executable or non-executable.",
     )
+    parser.add_argument(
+        "--gamma",
+        type=int,
+        default=gamma,
+        help="Gamma value for RLS algorithm.",
+    )
     return parser.parse_args()
 
 class NewQwen2ForCausalLM(Qwen2ForCausalLM):
@@ -230,7 +236,7 @@ class NewLlamaForCausalLM(LlamaForCausalLM):
     def MoeClassifier():
         pass
 
-def load_model_and_tokenizer(step, model_name_or_path):
+def load_model_and_tokenizer(step, model_name_or_path, gamma):
     if 'qwen' in model_name_or_path.lower():
         ModelClass = NewQwen2ForCausalLM
     else:
@@ -266,6 +272,7 @@ def train(args):
         inference_tasks = TASK_LIST
     import numpy as np
 
+    gamma = args.gamma
     logger = logging.getLogger("eval_router")
     step_results = []  # list of (step, correct, total, acc)
 
@@ -307,7 +314,7 @@ def train(args):
 
     # for i in range(0, len(inference_tasks) - 1):
     for i in range(0, len(inference_tasks)):
-        model, tokenizer = load_model_and_tokenizer(i, args.model_name_or_path)
+        model, tokenizer = load_model_and_tokenizer(i, args.model_name_or_path, gamma)
         tokenizer.pad_token = tokenizer.eos_token
 
         # cur_inference_tasks = inference_tasks[0:i+2]

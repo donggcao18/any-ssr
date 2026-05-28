@@ -18,8 +18,8 @@ export HF_DATASETS_CACHE=./.cache
 
 set -euo pipefail
 
-ALPHA="${ALPHA:-0.5}"
-GPU_ID="${GPU_ID:-0}"
+ALPHA="${ALPHA:-0.25}"
+GPU_ID="${GPU_ID:-1}"
 INFERENCE_BATCH="${INFERENCE_BATCH:-1}"
 MODEL="${MODEL:-Qwen/Qwen2.5-Coder-1.5B}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-./output_models/SeqSSRLoRA_Qwen2.5-Coder-1.5B_executable_alpha_${ALPHA}}"
