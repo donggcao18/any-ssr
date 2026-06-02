@@ -459,8 +459,6 @@ def main():
         cur_inference_tasks = inference_tasks[0:i+1]
         for inference_task_id in range(len(cur_inference_tasks)):
             inference_task = inference_tasks[inference_task_id]
-            if inference_task not in ("CoST",):
-                continue
             # Prepare the data
             if args.benchmark == "non-executable":
                 train, test, infer_dataset = create_codetask_dataset(
