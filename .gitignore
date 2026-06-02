@@ -12,3 +12,4 @@ logs/
 .cache/
 output_models/
 inference_result*
+tsne_output/

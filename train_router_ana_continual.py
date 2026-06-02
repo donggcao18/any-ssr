@@ -1,6 +1,5 @@
 import os
 import argparse
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from transformers.models.qwen2 import Qwen2ForCausalLM
 from transformers.models.qwen2 import Qwen2Model

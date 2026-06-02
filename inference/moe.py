@@ -456,7 +456,7 @@ class NewQwen2Model(Qwen2Model):
         self._attn_implementation = config._attn_implementation
         self.norm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = Qwen2RotaryEmbedding(config=config)
-        self.fe = torch.nn.Linkiear(in_features=1536, out_features=2500, bias=False)
+        self.fe = torch.nn.Linear(in_features=1536, out_features=2500, bias=False)
         self.moe_classifier = torch.nn.Linear(in_features=2500, out_features=8, bias=False)
         self.label = None
         self.gradient_checkpointing = False

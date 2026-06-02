@@ -1,9 +1,11 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-GAMMA="${GAMMA:-10000}"
+GAMMA="${GAMMA:-2500}"
+GPU_IDS="${GPU_IDS:-0}"
 
-# ---------- Run (Executable benchmark) ----------
+export CUDA_VISIBLE_DEVICES="$GPU_IDS"
+---------- Run (Executable benchmark) ----------
 python train_router_ana_continual.py \
     --model_name_or_path "Qwen/Qwen2.5-Coder-1.5B" \
     --benchmark executable \

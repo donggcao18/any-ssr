@@ -1,34 +1,27 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-
-
-# ---------- Run ----------
-python train_router_ana_continual.py \
-    --model          "Qwen/Qwen2.5-Coder-1.5B" \
-    --cuda_devices   "0,1" \
-    --feature_layers 4 \
-    --gamma          10000 \
-    --router_weights_path "output_models/router_weights_with_pool" \
-    --dataset_cache_path  "output_models/outputs_router_dataset_with_pool_cache" \
-    --dataset_path        "dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000" \
-    --max_prompt_len 512 \
-    --max_ans_len    256 \
-    --batch_size     1 \
-    --rls_lambda     100.0 \
-    --tasks hf:CONCODE hf:CodeTrans hf:CodeSearchNet hf:BFP hf:KodCode hf:TheVault_Csharp hf:RunBugRun hf:CoST
+GAMMA="${GAMMA:-2500}"
+GPU_IDS="${GPU_IDS:-0}"
+export CUDA_VISIBLE_DEVICES="$GPU_IDS"
+# # ---------- Run ----------
+# python train_router_ana_continual.py \
+#     --model_name_or_path          "Qwen/Qwen2.5-Coder-1.5B" \
+#     --benchmark non-executable \
+#     --gamma          $GAMMA \
+#     --router_weights_path "output_models/router_weights_with_pool_codetask_gamma_${GAMMA}" \
+#     --dataset_cache_path  "output_models/outputs_router_dataset_with_pool_cache" \
+#     --max_prompt_len 512 \
+#     --max_ans_len    256 \
+#     --batch_size     1 
 
 
 python eval_router_ana.py \
-    --model               "Qwen/Qwen2.5-Coder-1.5B" \
-    --cuda_devices        "0" \
-    --feature_layers      4 \
-    --gamma               10000 \
-    --router_weights_path "output_models/router_weights_with_pool" \
+    --model_name_or_path  "Qwen/Qwen2.5-Coder-1.5B" \
+    --benchmark non-executable \
+    --gamma               $GAMMA \
+    --router_weights_path "output_models/router_weights_with_pool_codetask_gamma_${GAMMA}" \
     --dataset_cache_path  "output_models/outputs_router_dataset_with_pool_cache" \
-    --dataset_path        "dataset/TRACE-Benchmark/LLM-CL-Benchmark_5000" \
     --max_prompt_len      512 \
     --max_ans_len         256 \
-    --batch_size          1 \
-    --log_file            "output_models/logs/eval_router_with_pool.log" \
-    --tasks hf:CONCODE hf:CodeTrans hf:CodeSearchNet hf:BFP hf:KodCode hf:TheVault_Csharp hf:RunBugRun hf:CoST
+    --batch_size          1 

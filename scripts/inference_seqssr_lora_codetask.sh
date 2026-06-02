@@ -35,7 +35,7 @@ mkdir -p $OUTPUT_DIR
 
 deepspeed --include=localhost:"${GPU_ID}" --master_port "$port" inference/infer_seqssr_lora.py \
     --router_weight_path "$ROUTER_WEIGHT_PATH" \
-    --benchmark executable \
+    --benchmark non-executable \
     --data_path "" \
     --inference_tasks all \
     --model_name_or_path "$MODEL" \
@@ -46,6 +46,6 @@ deepspeed --include=localhost:"${GPU_ID}" --master_port "$port" inference/infer_
     --inference_output_path "$OUTPUT_DIR" \
     --inference_batch "$INFERENCE_BATCH" \
     --do_sample \
-    --max_prompt_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
-    --max_ans_len    2048,2048,2048,2048,2048,2048,2048,2048,2048 \
+    --max_prompt_len 320,320,256,130,512,256,256,256 \
+    --max_ans_len    150,256,128,120,300,128,128,128 \
     2>&1 | tee $OUTPUT_DIR/eval.log
