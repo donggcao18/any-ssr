@@ -91,7 +91,8 @@ def parse_args():
     p.add_argument("--pca_dim", type=int, default=50,
                    help="PCA components before t-SNE (set 0 to skip)")
     p.add_argument("--tsne_perplexity", type=float, default=30.0)
-    p.add_argument("--tsne_n_iter", type=int, default=1000)
+    p.add_argument("--tsne_n_iter", type=int, default=1000,
+                   help="max_iter for t-SNE (sklearn >= 1.5 renamed n_iter → max_iter)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--benchmark", type=str,
@@ -324,12 +325,17 @@ def main():
         explained = pca.explained_variance_ratio_.sum()
         print(f"  Explained variance: {explained:.3f}")
 
-    # t-SNE
-    print(f"t-SNE (perplexity={args.tsne_perplexity}, n_iter={args.tsne_n_iter}) …")
+    # t-SNE — sklearn >= 1.5 renamed n_iter → max_iter; support both
+    import sklearn
+    _tsne_iter_kwarg = (
+        "max_iter" if tuple(int(x) for x in sklearn.__version__.split(".")[:2]) >= (1, 5)
+        else "n_iter"
+    )
+    print(f"t-SNE (perplexity={args.tsne_perplexity}, {_tsne_iter_kwarg}={args.tsne_n_iter}) …")
     tsne = TSNE(
         n_components=2,
         perplexity=args.tsne_perplexity,
-        n_iter=args.tsne_n_iter,
+        **{_tsne_iter_kwarg: args.tsne_n_iter},
         random_state=args.seed,
         init="pca",
         learning_rate="auto",
