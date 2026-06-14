@@ -1,0 +1,41 @@
+#!/bin/bash
+export HF_HOME=./.cache
+export HF_DATASETS_CACHE=./.cache
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+set -euo pipefail
+
+port=$(shuf -i25000-30000 -n1)
+
+deepspeed --master_port "$port" training/main_anamoe.py \
+  --data_path "" \
+  --dataset_name all \
+  --benchmark non-executable \
+  --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
+  --lr_scheduler_type cosine \
+  --num_warmup_steps 0 \
+  --seed 1234 \
+  --zero_stage 2 \
+  --deepspeed \
+  --print_loss \
+  --learning_rate 1e-4 \
+  --CL_method infer_base \
+  --output_dir ./output_models/infer_base_Qwen2.5-Coder-1.5B_non-executable \
+  --per_device_train_batch_size 2 \
+  --per_device_eval_batch_size 16 \
+  --gradient_accumulation_steps 6 \
+  --num_train 1 \
+  --num_eval 1 \
+  --num_test -1 \
+  --run_name run_1 \
+  --group_name infer_base_Qwen2.5-Coder-1.5B_non-executable \
+  --max_prompt_len 320,320,256,130,512,256,256,256 \
+  --max_ans_len    150,256,128,120,300,128,128,128 \
+  --num_train_epochs 0
+
+: "${HF_MODEL_REPO_ID:=ankhanhtran02/infer_base_Qwen2.5-Coder-1.5B_non-executable}"
+
+python upload_output_to_hf.py \
+  --output-dir "./output_models/infer_base_Qwen2.5-Coder-1.5B_non-executable" \
+  --repo-id "$HF_MODEL_REPO_ID" \
+  --commit-message "Upload infer_base non-executable outputs"
