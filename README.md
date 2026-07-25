@@ -10,49 +10,32 @@ This is the official implementation for Any-SSR [Any-SSR: How Recursive Least Sq
 <img src="imgs/overview.png" width="800px">
 </div>
 
-## Environment
-We recommend using the [Anaconda](https://anaconda.org/) to install the development environment.
+## Setup and run
+
+Linux, Conda, and an NVIDIA GPU are recommended.
 
 ```bash
-git clone --depth=1 https://github.com/ZHUANGHP/Any-SSR.git
-
 cd Any-SSR
-conda create -n anyssr-olora python=3.11
-conda activate anyssr-olora
+
+conda create -n anyssr python=3.11 -y
+conda activate anyssr
 pip install -r requirements.txt
 
-pip uninstall torch
-pip3 install torch --index-url https://download.pytorch.org/whl/cu128
-FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE pip install flash-attn==2.7.2.post1 --no-build-isolation
-
+pip uninstall torch -y
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE \
+  pip install flash-attn==2.7.2.post1 --no-build-isolation
 ```
 
-Create `.env` file in the root directory. Fill in your Wandb API key:
-```
-bash
-WANDB_API_KEY=your_api_key
-```
+Run all five CodeTask O-LoRA permutations:
 
-## Quick Start
-
-### Baselines
-To use O-LoRA
 ```bash
-mkdir logs/
-bash scripts/train_OLoRA.sh 2>&1 | tee logs/train_OLoRA.log
+bash scripts/train_O_LoRA_permutation.sh
 ```
 
-To use LwF
-```bash
-mkdir logs/
-bash scripts/train_LwF.sh 2>&1 | tee logs/train_Lwf.log
-```
-
-To use PP
-```bash
-mkdir logs/
-bash scripts/train_PP.sh 2>&1 | tee logs/train_PP.log
-```
+The experiments run sequentially. Checkpoints are saved in
+`output_models/OLoRA_Qwen2.5-Coder-1.5B_permutation_1` through
+`output_models/OLoRA_Qwen2.5-Coder-1.5B_permutation_5`.
 
 
 <div align="center">
