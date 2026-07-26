@@ -30,7 +30,7 @@ FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE \
 Run all five CodeTask O-LoRA permutations:
 
 ```bash
-bash scripts/train_O_LoRA_permutation.sh
+bash scripts/train_olora_permutation.sh
 ```
 
 The experiments run sequentially. Checkpoints are saved in
