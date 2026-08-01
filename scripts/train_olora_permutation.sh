@@ -13,6 +13,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --dataset_name CONCODE,CodeTrans,CoST,CodeSearchNet,TheVault_Csharp,BFP,RunBugRun,KodCode \
    --max_prompt_len 320,320,256,256,256,130,256,512 \
    --max_ans_len 150,256,128,128,128,120,128,300 \
+   --num_eval 100 \
    --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -41,6 +42,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --dataset_name CodeSearchNet,BFP,CodeTrans,KodCode,CONCODE,RunBugRun,CoST,TheVault_Csharp \
    --max_prompt_len 256,130,320,512,320,256,256,256 \
    --max_ans_len 128,120,256,300,150,128,128,128 \
+   --num_eval 100 \
    --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -69,6 +71,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --dataset_name KodCode,RunBugRun,BFP,TheVault_Csharp,CodeSearchNet,CoST,CodeTrans,CONCODE \
    --max_prompt_len 512,256,130,256,256,256,320,320 \
    --max_ans_len 300,128,120,128,128,128,256,150 \
+   --num_eval 100 \
    --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -97,6 +100,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --dataset_name TheVault_Csharp,CoST,RunBugRun,CONCODE,KodCode,CodeTrans,BFP,CodeSearchNet \
    --max_prompt_len 256,256,256,320,512,320,130,256 \
    --max_ans_len 128,128,128,150,300,256,120,128 \
+   --num_eval 100 \
    --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
@@ -125,6 +129,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
    --dataset_name CoST,CONCODE,TheVault_Csharp,CodeTrans,RunBugRun,CodeSearchNet,KodCode,BFP \
    --max_prompt_len 256,320,256,320,256,256,512,130 \
    --max_ans_len 128,150,128,256,128,128,300,120 \
+   --num_eval 100 \
    --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
    --lr_scheduler_type cosine \
    --num_warmup_steps 0 \
