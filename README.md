@@ -23,6 +23,11 @@ pip install -r requirements.txt
 
 pip uninstall torch
 pip3 install torch --index-url https://download.pytorch.org/whl/cu128
+
+#iff the current server  cannot module load the CUDA_HOME, you can install cuda-toolkit using this command
+conda install -c nvidia cuda-toolkit=12.8
+
+#be careful on installing this dep, if enncountering error, you can uninstall and normally using the current code  
 FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE pip install flash-attn==2.7.2.post1 --no-build-isolation
 
 ```
