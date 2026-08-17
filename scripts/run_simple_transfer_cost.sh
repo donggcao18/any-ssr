@@ -21,8 +21,10 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/CoST}"
 SEEDS="${SEEDS:-1234}"
 CONDITIONS="${CONDITIONS:-fresh codetrans thevault bfp}"
 NUM_TRAIN="${NUM_TRAIN:-5000}"
-NUM_EVAL="${NUM_EVAL:-500}"
-NUM_TEST="${NUM_TEST:-1000}"
+# Use the complete official validation/test splits. In particular, CoST has
+# only 272 validation rows, so a fixed request for 500 would be out of range.
+NUM_EVAL="${NUM_EVAL:--1}"
+NUM_TEST="${NUM_TEST:--1}"
 EVAL_STEPS="${EVAL_STEPS:-25}"
 
 adapter_for_condition() {
