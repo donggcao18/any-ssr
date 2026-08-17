@@ -50,11 +50,12 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/CoST}"
 SEEDS="${SEEDS:-12}"
 CONDITIONS="${CONDITIONS:-fresh codetrans thevault bfp}"
 NUM_TRAIN="${NUM_TRAIN:-5000}"
-# Use the complete official validation/test splits. In particular, CoST has
-# only 272 validation rows, so a fixed request for 500 would be out of range.
+# A fixed 200-example validation probe supports dense NLL measurements and is
+# safely below CoST's 272-example validation split.
 NUM_EVAL="${NUM_EVAL:--1}"
 NUM_TEST="${NUM_TEST:--1}"
-EVAL_STEPS="${EVAL_STEPS:-25}"
+EVAL_STEPS="${EVAL_STEPS:-10}"
+EVAL_DATA_SEED="${EVAL_DATA_SEED:-1234}"
 
 adapter_for_condition() {
     case "$1" in
@@ -97,8 +98,8 @@ for seed in ${SEEDS}; do
             --num_train "${NUM_TRAIN}" \
             --num_eval "${NUM_EVAL}" \
             --num_test "${NUM_TEST}" \
-            --per_device_train_batch_size 8 \
-            --per_device_eval_batch_size 8 \
+            --per_device_train_batch_size 64 \
+            --per_device_eval_batch_size 64 \
             --gradient_accumulation_steps 1 \
             --max_prompt_len 256 \
             --max_ans_len 128 \
@@ -107,6 +108,7 @@ for seed in ${SEEDS}; do
             --lr_scheduler_type cosine \
             --num_warmup_steps 0 \
             --seed "${seed}" \
+            --eval_data_seed "${EVAL_DATA_SEED}" \
             --zero_stage 2 \
             --deepspeed \
             --print_loss \

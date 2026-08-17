@@ -289,7 +289,14 @@ def create_dataset(local_rank, dataset_name, output_path,
 
     return train_dataset, eval_dataset, test_dataset
 
-def create_codetask_dataset(dataset_name, seed, num_train, num_eval, num_test):
+def create_codetask_dataset(
+    dataset_name,
+    seed,
+    num_train,
+    num_eval,
+    num_test,
+    eval_seed=None,
+):
     data_dict = {}
     for split in ['train', 'validation', 'test']:
         ds = load_dataset(
@@ -302,7 +309,8 @@ def create_codetask_dataset(dataset_name, seed, num_train, num_eval, num_test):
         ds = ds.rename_column('output', 'answer')    
         n = num_train if split == 'train' else num_eval if split == 'validation' else num_test
         if int(n) != -1:
-            ds = ds.shuffle(seed=seed).select(range(int(n)))
+            split_seed = seed if split == 'train' or eval_seed is None else eval_seed
+            ds = ds.shuffle(seed=split_seed).select(range(int(n)))
         data_dict[split] = ds
 
     return data_dict['train'], data_dict['validation'], data_dict['test']

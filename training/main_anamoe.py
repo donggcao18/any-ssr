@@ -231,6 +231,15 @@ def parse_args():
                         type=int,
                         default=42,
                         help="A seed for reproducible training.")
+    parser.add_argument(
+        '--eval_data_seed',
+        type=int,
+        default=None,
+        help=(
+            'Optional fixed seed for validation/test subset selection. '
+            'When omitted, --seed is used for all dataset splits.'
+        ),
+    )
     # local_rank 一般表示当前进程在当前节点的编号，global_rank 表示当前进程在所有进程中的编号
     # local_rank 为 -1 时，表示不使用分布式训练。这个值一般由 pytorch/deepspeed 自动设置，用户不用管
     parser.add_argument("--local_rank",
@@ -587,7 +596,14 @@ def main():
         # dataset_path = os.path.join(args.data_path,dataset)
         # Prepare the data
         if args.benchmark == "non-executable":
-            train_dataset, eval_dataset, test_dataset = create_codetask_dataset(dataset, args.seed, args.num_train[i], args.num_eval[i], args.num_test[i])
+            train_dataset, eval_dataset, test_dataset = create_codetask_dataset(
+                dataset,
+                args.seed,
+                args.num_train[i],
+                args.num_eval[i],
+                args.num_test[i],
+                eval_seed=args.eval_data_seed,
+            )
         else:
             train_dataset, eval_dataset, test_dataset = create_executable_dataset(dataset, args.seed, args.num_train[i], args.num_eval[i], args.num_test[i])
 

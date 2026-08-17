@@ -55,9 +55,10 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/BFP}"
 SEEDS="${SEEDS:-12}"
 CONDITIONS="${CONDITIONS:-fresh concode codetrans codesearchnet}"
 NUM_TRAIN="${NUM_TRAIN:-5000}"
-NUM_EVAL="${NUM_EVAL:-500}"
-NUM_TEST="${NUM_TEST:-1000}"
-EVAL_STEPS="${EVAL_STEPS:-25}"
+NUM_EVAL="${NUM_EVAL:--1}"
+NUM_TEST="${NUM_TEST:--1}"
+EVAL_STEPS="${EVAL_STEPS:-10}"
+EVAL_DATA_SEED="${EVAL_DATA_SEED:-1234}"
 
 adapter_for_condition() {
     case "$1" in
@@ -104,8 +105,8 @@ for seed in ${SEEDS}; do
             --num_train "${NUM_TRAIN}" \
             --num_eval "${NUM_EVAL}" \
             --num_test "${NUM_TEST}" \
-            --per_device_train_batch_size 16 \
-            --per_device_eval_batch_size 8 \
+            --per_device_train_batch_size 32 \
+            --per_device_eval_batch_size 32 \
             --gradient_accumulation_steps 1 \
             --max_prompt_len 130 \
             --max_ans_len 120 \
@@ -114,6 +115,7 @@ for seed in ${SEEDS}; do
             --lr_scheduler_type cosine \
             --num_warmup_steps 0 \
             --seed "${seed}" \
+            --eval_data_seed "${EVAL_DATA_SEED}" \
             --zero_stage 2 \
             --deepspeed \
             --print_loss \

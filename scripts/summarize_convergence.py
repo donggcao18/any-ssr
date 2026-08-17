@@ -51,6 +51,31 @@ def first_step_at_or_below(curve: list[dict], threshold: float) -> float | None:
     return None
 
 
+def loss_threshold(baseline: list[dict], fraction: float) -> float:
+    """Return the loss after `fraction` of the baseline improvement."""
+    if not 0.0 < fraction < 1.0:
+        raise ValueError(f"Threshold fraction must be between 0 and 1, got {fraction}")
+    initial_loss = float(baseline[0]["validation_nll"])
+    final_loss = float(baseline[-1]["validation_nll"])
+    return initial_loss - fraction * (initial_loss - final_loss)
+
+
+def crossing_speedup(
+    baseline: list[dict],
+    curve: list[dict],
+    threshold: float,
+) -> tuple[float | None, float]:
+    baseline_crossing = first_step_at_or_below(baseline, threshold)
+    crossing = first_step_at_or_below(curve, threshold)
+    if baseline_crossing is None or crossing is None:
+        return crossing, math.nan
+    if crossing == 0.0 and baseline_crossing > 0.0:
+        return crossing, math.inf
+    if crossing == 0.0:
+        return crossing, math.nan
+    return crossing, baseline_crossing / crossing
+
+
 def load_final_generation_metrics(run_dir: Path, target: str) -> dict[str, float]:
     prediction_root = run_dir / "predictions"
     candidates = list(prediction_root.glob(f"test-after-task-*/*_{target}.json"))
@@ -109,23 +134,17 @@ def main() -> None:
     for (condition, seed), (run_dir, curve) in sorted(curves.items()):
         baseline = baseline_curves.get(seed)
         if baseline is None:
-            threshold = math.nan
-            baseline_crossing = None
+            l90 = math.nan
+            l99 = math.nan
+            crossing_l90 = None
+            crossing_l99 = None
+            speedup_l90 = math.nan
+            speedup_l99 = math.nan
         else:
-            initial_loss = float(baseline[0]["validation_nll"])
-            final_baseline_loss = float(baseline[-1]["validation_nll"])
-            threshold = initial_loss - 0.9 * (initial_loss - final_baseline_loss)
-            baseline_crossing = first_step_at_or_below(baseline, threshold)
-
-        crossing = None if math.isnan(threshold) else first_step_at_or_below(curve, threshold)
-        if baseline_crossing is None or crossing is None:
-            speedup = math.nan
-        elif crossing == 0.0 and baseline_crossing > 0.0:
-            speedup = math.inf
-        elif crossing == 0.0:
-            speedup = math.nan
-        else:
-            speedup = baseline_crossing / crossing
+            l90 = loss_threshold(baseline, 0.90)
+            l99 = loss_threshold(baseline, 0.99)
+            crossing_l90, speedup_l90 = crossing_speedup(baseline, curve, l90)
+            crossing_l99, speedup_l99 = crossing_speedup(baseline, curve, l99)
         metrics = load_final_generation_metrics(run_dir, target)
         rows.append(
             {
@@ -134,9 +153,12 @@ def main() -> None:
                 "final_step": int(curve[-1]["optimizer_step"]),
                 "final_nll": float(curve[-1]["validation_nll"]),
                 "mean_curve_nll": normalized_auc(curve),
-                "null_l90": threshold,
-                "steps_to_null_l90": math.nan if crossing is None else crossing,
-                "speedup_vs_null": speedup,
+                "null_l90": l90,
+                "steps_to_null_l90": math.nan if crossing_l90 is None else crossing_l90,
+                "speedup_l90_vs_null": speedup_l90,
+                "null_l99": l99,
+                "steps_to_null_l99": math.nan if crossing_l99 is None else crossing_l99,
+                "speedup_l99_vs_null": speedup_l99,
                 "bleu": metrics.get("bleu", math.nan),
                 "codebleu": metrics.get("codebleu", math.nan),
                 "exact_match": metrics.get("exact_match", math.nan),
@@ -156,7 +178,11 @@ def main() -> None:
             csv_writer.writerows(rows)
 
     print("\nCondition means", file=sys.stderr)
-    print("condition,runs,final_nll,mean_curve_nll,speedup_vs_null,codebleu", file=sys.stderr)
+    print(
+        "condition,runs,final_nll,mean_curve_nll,"
+        "speedup_l90_vs_null,speedup_l99_vs_null,codebleu",
+        file=sys.stderr,
+    )
     for condition in sorted({row["condition"] for row in rows}):
         condition_rows = [row for row in rows if row["condition"] == condition]
         print(
@@ -166,7 +192,8 @@ def main() -> None:
                     str(len(condition_rows)),
                     f"{mean_or_nan([row['final_nll'] for row in condition_rows]):.6f}",
                     f"{mean_or_nan([row['mean_curve_nll'] for row in condition_rows]):.6f}",
-                    f"{mean_or_nan([row['speedup_vs_null'] for row in condition_rows]):.4f}",
+                    f"{mean_or_nan([row['speedup_l90_vs_null'] for row in condition_rows]):.4f}",
+                    f"{mean_or_nan([row['speedup_l99_vs_null'] for row in condition_rows]):.4f}",
                     f"{mean_or_nan([row['codebleu'] for row in condition_rows]):.4f}",
                 ]
             ),
