@@ -20,12 +20,34 @@ set -euo pipefail
 export HF_HOME="${HF_HOME:-./.cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-./.cache}"
 GPU_UUID="${GPU_UUID:-GPU-bf710366-2a19-14b1-a2f3-af0ee303d411}"
-#
-# # DeepSpeed expects a numeric GPU slot rather than a GPU UUID.
-GPU_INDEX=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader \
-     | awk -F', ' -v uuid="$GPU_UUID" '$2 == uuid {print $1}')                                                                                                                                                                                                                                                                                                            if [[ -z "$GPU_INDEX" ]]; then                                                                                                                                                          echo "ERROR: Cannot find GPU with UUID: $GPU_UUID"                                                                                                                                     exit 1
-             fi                                                                                                                                                                                 echo "Using GPU UUID: $GPU_UUID"                                                                                                                                                   echo "Mapped to GPU index: $GPU_INDEX"
-#
+
+# DeepSpeed expects a numeric GPU slot rather than a GPU UUID.
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "ERROR: nvidia-smi is not available on this host." >&2
+    exit 1
+fi
+
+GPU_LISTING="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)"
+GPU_INDEX="$(
+    printf '%s\n' "${GPU_LISTING}" \
+        | awk -F',' -v uuid="${GPU_UUID}" '
+            {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+            }
+            $2 == uuid { print $1; exit }
+        '
+)"
+
+if [[ -z "${GPU_INDEX}" ]]; then
+    echo "ERROR: Cannot find GPU with UUID: ${GPU_UUID}" >&2
+    echo "Available GPUs:" >&2
+    printf '%s\n' "${GPU_LISTING}" >&2
+    exit 1
+fi
+
+echo "Using GPU UUID: ${GPU_UUID}"
+echo "Mapped to GPU index: ${GPU_INDEX}"
 export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
