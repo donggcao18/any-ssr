@@ -282,6 +282,24 @@ def parse_args():
                         type=float,
                         default=0.1,
                         help='LoRA dropout')
+    parser.add_argument(
+        '--init_lora_path',
+        type=str,
+        default=None,
+        help=(
+            'Optional PEFT adapter directory used to initialize the target LoRA. '
+            'The optimizer and scheduler are still created from scratch.'
+        ),
+    )
+    parser.add_argument(
+        '--convergence_eval_steps',
+        type=int,
+        default=0,
+        help=(
+            'Evaluate token-weighted validation NLL every N optimizer steps. '
+            'Use 0 to disable fixed-step convergence evaluation.'
+        ),
+    )
     # parser.add_argument('--lora_target_modules',
     #                     type=list_of_strings,
     #                     default="q_proj,v_proj",
@@ -473,31 +491,62 @@ def main():
                 param.requires_grad = True
 
     if args.CL_method == "anamoe":
-        from peft import get_peft_model, LoraConfig, TaskType
-        
-        peft_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM, r=args.lora_dim, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout
-        )
+        from peft import PeftModel, get_peft_model, LoraConfig, TaskType
 
-        names = [name for name, param in model.named_parameters()]
+        if args.init_lora_path:
+            if not os.path.isdir(args.init_lora_path):
+                raise FileNotFoundError(
+                    f"LoRA initialization directory does not exist: {args.init_lora_path}"
+                )
+            adapter_config_path = os.path.join(args.init_lora_path, "adapter_config.json")
+            if not os.path.isfile(adapter_config_path):
+                raise FileNotFoundError(
+                    f"Missing adapter_config.json in LoRA initialization directory: {args.init_lora_path}"
+                )
 
-        start = 4
-        end = 28  # Qwen2.5-Coder-1.5B has 28 layers (0-27)
-        # filtered_names = [name for name in names if start <= int(name.split('.')[2]) < end]
+            print_rank_0(
+                f"Initializing trainable target LoRA from {args.init_lora_path}",
+                args.global_rank,
+            )
+            # Only adapter weights are restored. Optimizer and scheduler state are
+            # constructed later in this file, so target adaptation starts cleanly.
+            model = PeftModel.from_pretrained(
+                model,
+                args.init_lora_path,
+                is_trainable=True,
+            )
+        else:
+            print_rank_0(
+                "Initializing target LoRA with the standard fresh PEFT initialization",
+                args.global_rank,
+            )
+            peft_config = LoraConfig(
+                task_type=TaskType.CAUSAL_LM,
+                r=args.lora_dim,
+                lora_alpha=args.lora_alpha,
+                lora_dropout=args.lora_dropout,
+            )
 
-        filtered_names = [
-            name[:-7] for name in names
-            if name.startswith("model.layers.")  # 确保是层相关的内容
-            and start <= int(name.split('.')[2]) < end  # 检查层号是否在范围内
-        ]
+            names = [name for name, param in model.named_parameters()]
 
-        filtered_names = [name for name in filtered_names if 'layernorm' not in name]
-        filtered_names = [name for name in filtered_names if 'k_proj' not in name]
-        filtered_names = [name for name in filtered_names if 'o_proj' not in name]
-        filtered_names = [name for name in filtered_names if 'mlp' not in name]
-        peft_config.target_modules = filtered_names
+            start = 4
+            end = 28  # Qwen2.5-Coder-1.5B has 28 layers (0-27)
+            filtered_names = [
+                name[:-7] for name in names
+                if name.startswith("model.layers.")
+                and start <= int(name.split('.')[2]) < end
+            ]
 
-        model = get_peft_model(model, peft_config)
+            filtered_names = [name for name in filtered_names if 'layernorm' not in name]
+            filtered_names = [name for name in filtered_names if 'k_proj' not in name]
+            filtered_names = [name for name in filtered_names if 'o_proj' not in name]
+            filtered_names = [name for name in filtered_names if 'mlp' not in name]
+            peft_config.target_modules = filtered_names
+
+            model = get_peft_model(model, peft_config)
+
+        if hasattr(model, "print_trainable_parameters") and args.global_rank == 0:
+            model.print_trainable_parameters()
         # for name, param in model.named_parameters():
         #     if name.find("lora") != -1:
         #         param.requires_grad = True
@@ -510,6 +559,7 @@ def main():
     
     train_task_list = {}
     eval_task_list = {}
+    loss_eval_task_list = {}
     test_task_list = {}
 
 
@@ -545,11 +595,13 @@ def main():
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_dataset)
             eval_sampler = SequentialSampler(eval_dataset)
+            loss_eval_sampler = SequentialSampler(eval_dataset)
             test_sampler = SequentialSampler(test_dataset)
 
         else:
             train_sampler = DistributedSampler(train_dataset)
             eval_sampler = DistributedSampler(eval_dataset)
+            loss_eval_sampler = DistributedSampler(eval_dataset, shuffle=False)
             test_sampler = DistributedSampler(test_dataset)
 
         data_collator = DataCollator(
@@ -579,12 +631,17 @@ def main():
                                     collate_fn=inf_data_collator,
                                     sampler=eval_sampler,
                                     batch_size=args.per_device_eval_batch_size)
+        loss_eval_dataloader = DataLoader(eval_dataset,
+                                    collate_fn=data_collator,
+                                    sampler=loss_eval_sampler,
+                                    batch_size=args.per_device_eval_batch_size)
         test_dataloader = DataLoader(test_dataset,
                             collate_fn=inf_data_collator,
                             sampler=test_sampler,
                             batch_size=args.per_device_eval_batch_size)
         train_task_list[dataset] = train_dataloader
         eval_task_list[dataset] = eval_dataloader
+        loss_eval_task_list[dataset] = loss_eval_dataloader
         test_task_list[dataset] = test_dataloader
 
 
@@ -695,6 +752,9 @@ def main():
     # Initialize the global progress bar
 
     if args.CL_method in Method2Class.keys():
+        # Generation evaluation uses inference-mode batches, while convergence
+        # NLL needs the same labeled collator as training.
+        args.loss_eval_task_list = loss_eval_task_list
         CL_Trainer = Method2Class[args.CL_method](model, tokenizer, optimizer, train_task_list, eval_task_list, test_task_list, args)
         CL_Trainer.train_continual()
 

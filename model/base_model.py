@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 import json
+import math
 import os
 import time
 from evaluations import eval_ScienceQA, eval_MeetingBank, eval_PapyrusF, eval_CStance, eval_Py150, eval_FOMC, eval_NumGLUE_cm, eval_NumGLUE_ds, eval_20Minuten # to be continued
@@ -59,6 +60,103 @@ class CL_Base_Model:
         except:
             pass
         return perplexity
+
+    def token_weighted_validation_nll(self, eval_dataloader, device):
+        """Return answer-token-weighted validation NLL.
+
+        Hugging Face causal-LM loss is already averaged over unmasked target
+        tokens for each batch. Multiplying it by the number of target tokens
+        before reducing avoids giving short and long batches equal weight.
+        """
+        was_training = self.model.training
+        self.model.eval()
+        nll_sum = torch.zeros(1, dtype=torch.float64, device=device)
+        token_count = torch.zeros(1, dtype=torch.float64, device=device)
+
+        for batch in eval_dataloader:
+            batch = dict(batch)
+            batch.pop('sources', None)
+            batch.pop('gts', None)
+            batch = to_device(batch, device)
+
+            # Causal-LM loss shifts labels by one position internally.
+            num_target_tokens = (batch['labels'][..., 1:] != -100).sum()
+            if num_target_tokens.item() == 0:
+                continue
+
+            with torch.no_grad():
+                outputs = self.model(**batch, use_cache=False)
+            nll_sum += outputs.loss.detach().double() * num_target_tokens.double()
+            token_count += num_target_tokens.double()
+
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(nll_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(token_count, op=dist.ReduceOp.SUM)
+
+        if was_training:
+            self.model.train()
+
+        if token_count.item() == 0:
+            raise RuntimeError("Validation set contains no unmasked answer tokens.")
+        return (nll_sum / token_count).item(), int(token_count.item())
+
+    def _global_sum_int(self, value, device):
+        value_tensor = torch.tensor([value], dtype=torch.long, device=device)
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(value_tensor, op=dist.ReduceOp.SUM)
+        return int(value_tensor.item())
+
+    def _log_convergence_record(
+        self,
+        task,
+        event,
+        optimizer_step,
+        epoch,
+        train_loss,
+        local_target_tokens_seen,
+        training_seconds,
+        eval_dataloader,
+        device,
+    ):
+        eval_started = time.perf_counter()
+        validation_nll, validation_tokens = self.token_weighted_validation_nll(
+            eval_dataloader,
+            device,
+        )
+        evaluation_seconds = time.perf_counter() - eval_started
+        target_tokens_seen = self._global_sum_int(local_target_tokens_seen, device)
+
+        record = {
+            "task": task,
+            "source_adapter": getattr(self.args, "init_lora_path", None) or "fresh",
+            "seed": int(self.args.seed),
+            "event": event,
+            "epoch": int(epoch),
+            "optimizer_step": int(optimizer_step),
+            "target_tokens_seen": target_tokens_seen,
+            "train_loss": None if train_loss is None else float(train_loss),
+            "validation_nll": float(validation_nll),
+            "validation_perplexity": float(math.exp(min(validation_nll, 20.0))),
+            "validation_tokens": validation_tokens,
+            "training_seconds": float(training_seconds),
+            "evaluation_seconds": float(evaluation_seconds),
+        }
+
+        if self.args.global_rank == 0:
+            if self.args.output_dir is None:
+                raise ValueError("--output_dir is required for convergence logging.")
+            os.makedirs(self.args.output_dir, exist_ok=True)
+            output_path = os.path.join(self.args.output_dir, "convergence.jsonl")
+            with open(output_path, "a", encoding="utf-8") as output_file:
+                output_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+            print_rank_0(
+                "[convergence] "
+                f"event={event} task={task} optimizer_step={optimizer_step} "
+                f"target_tokens={target_tokens_seen} val_nll={validation_nll:.6f} "
+                f"train_seconds={training_seconds:.2f}",
+                self.args.global_rank,
+            )
+        return record
 
     def _task_eval_from_predictions(self, task, sources_sequences, predicted_sequences, ground_truths):
         if task in ['CodeSearchNet', 'TheVault_Csharp']:
@@ -276,9 +374,36 @@ class CL_Base_Model:
         #### TRAIN ####
         train_dataloader = self.train_task_list[task]
         eval_dataloader = self.eval_task_list[task]
+        loss_eval_dataloader = getattr(self.args, 'loss_eval_task_list', {}).get(
+            task,
+            eval_dataloader,
+        )
         total_steps = epochs * len(train_dataloader)
         progress_bar = tqdm(total=total_steps, leave=True, disable=(self.args.global_rank != 0))
         global_step = 0
+        convergence_eval_steps = int(getattr(self.args, 'convergence_eval_steps', 0) or 0)
+        engine_start_step = int(getattr(self.model, 'global_steps', 0))
+        task_optimizer_step = 0
+        last_convergence_step = None
+        next_convergence_step = convergence_eval_steps
+        local_target_tokens_seen = 0
+        training_seconds = 0.0
+        latest_train_loss = None
+
+        if convergence_eval_steps > 0:
+            self._log_convergence_record(
+                task=task,
+                event="start",
+                optimizer_step=0,
+                epoch=0,
+                train_loss=None,
+                local_target_tokens_seen=0,
+                training_seconds=0.0,
+                eval_dataloader=loss_eval_dataloader,
+                device=device,
+            )
+            last_convergence_step = 0
+
         for epoch in range(epochs):
             print_rank_0(
                 f"Beginning of Epoch {epoch+1}/{epochs}, Total Micro Batches {len(train_dataloader)}",
@@ -289,8 +414,14 @@ class CL_Base_Model:
                 global_step += 1
                 del batch['sources']
                 batch = to_device(batch, device)
+
+                local_target_tokens_seen += int(
+                    (batch['labels'][..., 1:] != -100).sum().item()
+                )
+                train_started = time.perf_counter()
                 outputs = self.model(**batch, use_cache=False)
                 loss = outputs.loss
+                latest_train_loss = loss.item()
                 # Update the description to include current step and loss, if needed
                 if self.args.global_rank == 0:
                     # Update the progress bar
@@ -304,6 +435,44 @@ class CL_Base_Model:
                 self.model.backward(loss)
                 # Correct gradient accumulation steps are handled withing the deepspeed engine's backward call.
                 self.model.step()
+                training_seconds += time.perf_counter() - train_started
+
+                engine_global_step = int(
+                    getattr(self.model, 'global_steps', engine_start_step + global_step)
+                )
+                task_optimizer_step = engine_global_step - engine_start_step
+                if (
+                    convergence_eval_steps > 0
+                    and task_optimizer_step >= next_convergence_step
+                ):
+                    self._log_convergence_record(
+                        task=task,
+                        event="interval",
+                        optimizer_step=task_optimizer_step,
+                        epoch=epoch + 1,
+                        train_loss=latest_train_loss,
+                        local_target_tokens_seen=local_target_tokens_seen,
+                        training_seconds=training_seconds,
+                        eval_dataloader=loss_eval_dataloader,
+                        device=device,
+                    )
+                    last_convergence_step = task_optimizer_step
+                    while next_convergence_step <= task_optimizer_step:
+                        next_convergence_step += convergence_eval_steps
+
+            if convergence_eval_steps > 0 and last_convergence_step != task_optimizer_step:
+                self._log_convergence_record(
+                    task=task,
+                    event="epoch_end",
+                    optimizer_step=task_optimizer_step,
+                    epoch=epoch + 1,
+                    train_loss=latest_train_loss,
+                    local_target_tokens_seen=local_target_tokens_seen,
+                    training_seconds=training_seconds,
+                    eval_dataloader=loss_eval_dataloader,
+                    device=device,
+                )
+                last_convergence_step = task_optimizer_step
 
             # Validate on eval split after each epoch.
             print_rank_0(
