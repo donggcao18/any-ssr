@@ -51,11 +51,11 @@ def first_step_at_or_below(curve: list[dict], threshold: float) -> float | None:
     return None
 
 
-def load_final_generation_metrics(run_dir: Path) -> dict[str, float]:
+def load_final_generation_metrics(run_dir: Path, target: str) -> dict[str, float]:
     prediction_root = run_dir / "predictions"
-    candidates = list(prediction_root.glob("test-after-task-*/*_CoST.json"))
+    candidates = list(prediction_root.glob(f"test-after-task-*/*_{target}.json"))
     if not candidates:
-        candidates = list(prediction_root.glob("eval-epoch*/*_CoST.json"))
+        candidates = list(prediction_root.glob(f"eval-epoch*/*_{target}.json"))
         candidates.sort(
             key=lambda path: int(re.search(r"eval-epoch(\d+)", str(path)).group(1))
         )
@@ -80,6 +80,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("results_root", type=Path)
     parser.add_argument("--baseline", default="fresh")
+    parser.add_argument(
+        "--target",
+        default=None,
+        help="Target task name. By default it is read from convergence.jsonl.",
+    )
     parser.add_argument("--csv", type=Path, default=None)
     args = parser.parse_args()
 
@@ -92,6 +97,8 @@ def main() -> None:
 
     if not curves:
         raise SystemExit(f"No convergence.jsonl files found under {args.results_root}")
+
+    target = args.target or next(iter(curves.values()))[1][0]["task"]
 
     baseline_curves = {
         seed: curve
@@ -119,7 +126,7 @@ def main() -> None:
             speedup = math.nan
         else:
             speedup = baseline_crossing / crossing
-        metrics = load_final_generation_metrics(run_dir)
+        metrics = load_final_generation_metrics(run_dir, target)
         rows.append(
             {
                 "condition": condition,
