@@ -52,7 +52,7 @@ export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/BFP}"
-SEEDS="${SEEDS:-1234}"
+SEEDS="${SEEDS:-12}"
 CONDITIONS="${CONDITIONS:-fresh concode codetrans codesearchnet}"
 NUM_TRAIN="${NUM_TRAIN:-5000}"
 NUM_EVAL="${NUM_EVAL:-500}"

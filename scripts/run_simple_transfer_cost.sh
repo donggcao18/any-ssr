@@ -14,11 +14,40 @@ set -euo pipefail
 
 export HF_HOME="${HF_HOME:-./.cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-./.cache}"
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+GPU_UUID="${GPU_UUID:-GPU-bf710366-2a19-14b1-a2f3-af0ee303d411}"
+
+# DeepSpeed expects a numeric GPU slot rather than a GPU UUID.
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "ERROR: nvidia-smi is not available on this host." >&2
+    exit 1
+fi
+
+GPU_LISTING="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)"
+GPU_INDEX="$(
+    printf '%s\n' "${GPU_LISTING}" \
+        | awk -F',' -v uuid="${GPU_UUID}" '
+            {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+            }
+            $2 == uuid { print $1; exit }
+        '
+)"
+
+if [[ -z "${GPU_INDEX}" ]]; then
+    echo "ERROR: Cannot find GPU with UUID: ${GPU_UUID}" >&2
+    echo "Available GPUs:" >&2
+    printf '%s\n' "${GPU_LISTING}" >&2
+    exit 1
+fi
+
+echo "Using GPU UUID: ${GPU_UUID}"
+echo "Mapped to GPU index: ${GPU_INDEX}"
+export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/CoST}"
-SEEDS="${SEEDS:-1234}"
+SEEDS="${SEEDS:-12}"
 CONDITIONS="${CONDITIONS:-fresh codetrans thevault bfp}"
 NUM_TRAIN="${NUM_TRAIN:-5000}"
 # Use the complete official validation/test splits. In particular, CoST has
