@@ -98,8 +98,8 @@ for seed in ${SEEDS}; do
             --num_train "${NUM_TRAIN}" \
             --num_eval "${NUM_EVAL}" \
             --num_test "${NUM_TEST}" \
-            --per_device_train_batch_size 64 \
-            --per_device_eval_batch_size 64 \
+            --per_device_train_batch_size 32 \
+            --per_device_eval_batch_size 32 \
             --gradient_accumulation_steps 1 \
             --max_prompt_len 256 \
             --max_ans_len 128 \
