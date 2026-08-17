@@ -14,7 +14,7 @@ set -euo pipefail
 
 export HF_HOME="${HF_HOME:-./.cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-./.cache}"
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/CoST}"
@@ -70,7 +70,7 @@ for seed in ${SEEDS}; do
             --num_test "${NUM_TEST}" \
             --per_device_train_batch_size 8 \
             --per_device_eval_batch_size 8 \
-            --gradient_accumulation_steps 2 \
+            --gradient_accumulation_steps 1 \
             --max_prompt_len 256 \
             --max_ans_len 128 \
             --learning_rate 1e-4 \
