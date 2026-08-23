@@ -13,7 +13,7 @@ def record(source, source_index, score, status="ok"):
     return ScoreRecord(
         "run", ["CONCODE", "CodeTrans", "BFP"], "order", "BFP", 2,
         source, source_index, f"anamoe/{source}/0", "gmm", score, None,
-        status, 1234, diagnostics={"gmm_jsd": 0.1},
+        status, 1234, diagnostics={"gmm_mean_log_likelihood": -4.0, "gmm_mean_nll": 4.0},
     )
 
 
@@ -41,9 +41,8 @@ class RankingTests(unittest.TestCase):
             self.assertIn("task_order_id", first)
             self.assertNotIn("row_ids", json.dumps(first))
             header = (output / "scores_wide.csv").read_text().splitlines()[0]
-            self.assertIn("gmm_similarity", header)
+            self.assertIn("gmm_score", header)
 
 
 if __name__ == "__main__":
     unittest.main()
-

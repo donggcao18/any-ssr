@@ -55,7 +55,7 @@ def _wide_rows(records: list[ScoreRecord], config: ExperimentConfig) -> tuple[li
         by_candidate[(record.target_task, record.source_task)][record.method] = record
     base_fields = ["task_order_id", "target_task", "source_task", "source_index", "adapter_path"]
     method_fields = [
-        "gmm_similarity", "gmm_rank", "gmm_status", "gmm_jsd",
+        "gmm_score", "gmm_rank", "gmm_status", "gmm_mean_log_likelihood", "gmm_mean_nll",
         "gca_score", "gca_rank", "gca_status",
         "oia_score", "oia_rank", "oia_status",
         "oia_source_nll_step0", "oia_source_nll_step1",
@@ -83,7 +83,7 @@ def _wide_rows(records: list[ScoreRecord], config: ExperimentConfig) -> tuple[li
         }
         for method in ("gmm", "gca", "oia", "slu"):
             record = methods.get(method)
-            prefix = "gmm_similarity" if method == "gmm" else f"{method}_score"
+            prefix = f"{method}_score"
             row[prefix] = record.score if record else None
             row[f"{method}_rank"] = record.rank if record else None
             row[f"{method}_status"] = record.status if record else None
@@ -91,7 +91,8 @@ def _wide_rows(records: list[ScoreRecord], config: ExperimentConfig) -> tuple[li
                 continue
             diagnostics = record.diagnostics
             if method == "gmm":
-                row["gmm_jsd"] = diagnostics.get("gmm_jsd")
+                row["gmm_mean_log_likelihood"] = diagnostics.get("gmm_mean_log_likelihood")
+                row["gmm_mean_nll"] = diagnostics.get("gmm_mean_nll")
             elif method == "oia":
                 for name in (
                     "source_nll_step0", "source_nll_step1", "fresh_nll_step0",
@@ -234,7 +235,7 @@ def validate_outputs(output_dir: Path) -> None:
             walk(payload)
     with (output_dir / "scores_wide.csv").open("r", encoding="utf-8", newline="") as stream:
         reader = csv.DictReader(stream)
-        required_wide = {"task_order_id", "target_task", "source_task", "gmm_similarity", "gca_score", "oia_score", "slu_score"}
+        required_wide = {"task_order_id", "target_task", "source_task", "gmm_score", "gca_score", "oia_score", "slu_score"}
         missing = required_wide - set(reader.fieldnames or [])
         if missing:
             raise ValueError(f"scores_wide.csv misses fields: {sorted(missing)}")

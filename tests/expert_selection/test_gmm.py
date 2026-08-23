@@ -1,4 +1,3 @@
-import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,7 +5,13 @@ from pathlib import Path
 import numpy as np
 
 from expert_selection.config import ExperimentConfig
-from expert_selection.methods.gmm import DiagonalGMM, GMMArtifact, load_artifact, monte_carlo_jsd, write_artifact
+from expert_selection.methods.gmm import (
+    DiagonalGMM,
+    GMMArtifact,
+    calibration_log_likelihood,
+    load_artifact,
+    write_artifact,
+)
 
 
 class GMMTests(unittest.TestCase):
@@ -18,27 +23,47 @@ class GMMTests(unittest.TestCase):
             diagnostics={"converged": True},
         )
 
-    def test_self_is_more_similar_than_shifted(self):
-        target = self.distribution()
-        target_samples = target.sample(20000, 11)
-        same = monte_carlo_jsd(target, target, n_mc=20000, chunk_size=256, source_seed=12, target_samples=target_samples)
-        shifted = monte_carlo_jsd(self.distribution(5.0), target, n_mc=20000, chunk_size=256, source_seed=12, target_samples=target_samples)
-        self.assertGreater(same["similarity"], shifted["similarity"])
-        self.assertGreaterEqual(same["similarity"], 0.0)
-        self.assertLessEqual(same["similarity"], 1.0)
+    def test_matching_source_has_higher_calibration_likelihood_than_shifted_source(self):
+        target_vectors = np.array([[0.0, 0.0], [0.2, -0.1], [-0.2, 0.1]], dtype=np.float64)
+        matching = calibration_log_likelihood(self.distribution(), target_vectors, chunk_size=2)
+        shifted = calibration_log_likelihood(self.distribution(5.0), target_vectors, chunk_size=2)
+        self.assertGreater(
+            matching["log_likelihood_per_dimension"],
+            shifted["log_likelihood_per_dimension"],
+        )
+        self.assertAlmostEqual(matching["mean_nll"], -matching["mean_log_likelihood"])
 
-    def test_estimator_is_approximately_symmetric(self):
-        left, right = self.distribution(), self.distribution(1.0)
-        lr = monte_carlo_jsd(left, right, n_mc=30000, chunk_size=512, source_seed=4, target_seed=5)
-        rl = monte_carlo_jsd(right, left, n_mc=30000, chunk_size=512, source_seed=5, target_seed=4)
-        self.assertLess(abs(lr["jsd"] - rl["jsd"]), 0.025)
-        self.assertTrue(math.isfinite(lr["standard_error"]))
+    def test_calibration_likelihood_is_chunk_size_invariant(self):
+        vectors = np.array([[0.0, 0.0], [1.0, -1.0], [2.0, 0.5]], dtype=np.float64)
+        one = calibration_log_likelihood(self.distribution(), vectors, chunk_size=1)
+        all_at_once = calibration_log_likelihood(self.distribution(), vectors, chunk_size=32)
+        self.assertAlmostEqual(one["mean_log_likelihood"], all_at_once["mean_log_likelihood"])
 
     def test_invalid_variance_is_rejected(self):
         invalid = self.distribution()
         invalid.covariances[0, 0] = 0.0
         with self.assertRaisesRegex(ValueError, "variances"):
             invalid.validate()
+
+    def test_validation_normalizes_harmless_weight_sum_drift(self):
+        distribution = DiagonalGMM(
+            weights=np.array([0.2, 0.3, 0.50000002], dtype=np.float64),
+            means=np.zeros((3, 2), dtype=np.float64),
+            covariances=np.ones((3, 2), dtype=np.float64),
+            diagnostics={"converged": True},
+        )
+        distribution.validate()
+        self.assertEqual(distribution.weights.sum(dtype=np.float64), 1.0)
+
+    def test_material_weight_corruption_is_rejected(self):
+        distribution = DiagonalGMM(
+            weights=np.array([0.2, 0.3, 0.6], dtype=np.float64),
+            means=np.zeros((3, 2), dtype=np.float64),
+            covariances=np.ones((3, 2), dtype=np.float64),
+            diagnostics={"converged": True},
+        )
+        with self.assertRaisesRegex(ValueError, "materially differ"):
+            distribution.validate()
 
     def test_durable_artifact_contains_only_compact_arrays_and_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

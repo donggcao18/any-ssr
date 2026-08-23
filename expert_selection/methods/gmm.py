@@ -46,10 +46,21 @@ class DiagonalGMM:
             raise ValueError("Invalid diagonal GMM array shapes")
         if self.means.shape[0] != self.weights.shape[0]:
             raise ValueError("GMM component shape mismatch")
-        if not np.all(np.isfinite(self.weights)) or not np.isclose(self.weights.sum(), 1.0, rtol=1e-6, atol=1e-8):
-            raise ValueError("GMM weights are nonfinite or do not sum to one")
-        if np.any(self.weights < 0) or not np.all(np.isfinite(self.means)):
+        weights = np.asarray(self.weights, dtype=np.float64)
+        weight_sum = float(weights.sum(dtype=np.float64))
+        if not np.all(np.isfinite(weights)) or not math.isfinite(weight_sum) or weight_sum <= 0:
+            raise ValueError("GMM weights are nonfinite or have a non-positive sum")
+        if abs(weight_sum - 1.0) > 1e-6:
+            raise ValueError(f"GMM weights materially differ from unit sum: {weight_sum:.17g}")
+        if np.any(weights < 0) or not np.all(np.isfinite(self.means)):
             raise ValueError("GMM weights/means are invalid")
+        # sklearn/NPZ round trips can leave harmless floating-point drift.
+        # Canonicalize only after rejecting material corruption.
+        weights = weights / weight_sum
+        weights[-1] = 1.0 - float(weights[:-1].sum(dtype=np.float64))
+        if weights[-1] < 0 or not np.isclose(weights.sum(dtype=np.float64), 1.0, rtol=0.0, atol=4 * np.finfo(np.float64).eps):
+            raise ValueError("GMM weights could not be normalized safely")
+        self.weights = weights
         if not np.all(np.isfinite(self.covariances)) or np.any(self.covariances <= 0):
             raise ValueError("GMM diagonal variances must be positive and finite")
 
@@ -66,13 +77,6 @@ class DiagonalGMM:
             component_log_prob = -0.5 * (normalizer[None, :] + squared)
             answers.append(_logsumexp(component_log_prob + log_weights[None, :], axis=1))
         return np.concatenate(answers) if answers else np.empty((0,), dtype=np.float64)
-
-    def sample(self, count: int, seed: int) -> np.ndarray:
-        generator = np.random.default_rng(seed)
-        components = generator.choice(self.components, size=count, p=self.weights)
-        noise = generator.standard_normal((count, self.dimension))
-        return self.means[components] + noise * np.sqrt(self.covariances[components])
-
 
 @dataclass(slots=True)
 class GMMArtifact:
@@ -116,38 +120,36 @@ def fit_diagonal_gmm(vectors: np.ndarray, config: ExperimentConfig, seed: int) -
     return distribution
 
 
-def monte_carlo_jsd(
+def calibration_log_likelihood(
     source: DiagonalGMM,
-    target: DiagonalGMM,
+    target_vectors: np.ndarray,
     *,
-    n_mc: int,
     chunk_size: int,
-    source_seed: int,
-    target_samples: np.ndarray | None = None,
-    target_seed: int | None = None,
 ) -> dict[str, float]:
-    if source.dimension != target.dimension:
-        raise ValueError("Cannot compare GMMs with different representation dimensions")
-    source_samples = source.sample(n_mc, source_seed)
-    if target_samples is None:
-        if target_seed is None:
-            raise ValueError("target_seed is required when target_samples are not supplied")
-        target_samples = target.sample(n_mc, target_seed)
-    log_p_on_p = source.log_prob(source_samples, chunk_size)
-    log_q_on_p = target.log_prob(source_samples, chunk_size)
-    log_p_on_q = source.log_prob(target_samples, chunk_size)
-    log_q_on_q = target.log_prob(target_samples, chunk_size)
-    log_m_on_p = np.logaddexp(log_p_on_p, log_q_on_p) - math.log(2.0)
-    log_m_on_q = np.logaddexp(log_p_on_q, log_q_on_q) - math.log(2.0)
-    term_source = log_p_on_p - log_m_on_p
-    term_target = log_q_on_q - log_m_on_q
-    jsd = 0.5 * float(term_source.mean()) + 0.5 * float(term_target.mean())
-    standard_error = math.sqrt(
-        float(term_source.var(ddof=1)) / (4.0 * n_mc)
-        + float(term_target.var(ddof=1)) / (4.0 * n_mc)
-    ) if n_mc > 1 else float("nan")
-    similarity = float(np.clip(1.0 - jsd / math.log(2.0), 0.0, 1.0))
-    return {"jsd": jsd, "standard_error": standard_error, "similarity": similarity}
+    """Score current calibration vectors directly under a historical GMM.
+
+    This is deliberately directional: it measures how well the historical task
+    distribution explains examples from the current task. Dividing by the
+    representation dimension makes values easier to compare across experiments;
+    it does not change a ranking within one target task.
+    """
+    source.validate()
+    target_vectors = np.asarray(target_vectors, dtype=np.float64)
+    if target_vectors.ndim != 2:
+        raise ValueError("Target calibration representations must be a two-dimensional array")
+    if len(target_vectors) == 0:
+        raise ValueError("Target calibration representations cannot be empty")
+    if target_vectors.shape[1] != source.dimension:
+        raise ValueError("Cannot score representations with a different dimension from the source GMM")
+    log_likelihoods = source.log_prob(target_vectors, chunk_size)
+    if not np.all(np.isfinite(log_likelihoods)):
+        raise ValueError("Historical GMM produced nonfinite calibration log-likelihoods")
+    mean_log_likelihood = float(log_likelihoods.mean())
+    return {
+        "mean_log_likelihood": mean_log_likelihood,
+        "mean_nll": -mean_log_likelihood,
+        "log_likelihood_per_dimension": mean_log_likelihood / source.dimension,
+    }
 
 
 def representation_metadata(config: ExperimentConfig, bundle: Any, dimension: int) -> dict[str, Any]:
@@ -300,6 +302,25 @@ class GMMArtifactBuilder:
     def prepare_current_task(self, context: Any, provenance: str = "online_current_task") -> GMMArtifact:
         config: ExperimentConfig = context.config
         sample_seed = stable_seed(config.data_seed, context.task.casefold(), "future_source")
+        fit_seed = stable_seed(config.method_seed, context.task.casefold(), "future_source")
+        dimension = int(getattr(context.bundle.model.config, "hidden_size", 0))
+        if dimension <= 0:
+            raise ValueError("The backbone config does not expose a positive hidden_size")
+        pipeline = representation_metadata(config, context.bundle, dimension)
+        current_fingerprint = dataset_fingerprint(context.dataset)
+        try:
+            existing = resolve_artifact(config, context.task, pipeline)
+        except FileNotFoundError:
+            existing = None
+        if (
+            existing is not None
+            and existing.metadata.get("provenance") == provenance
+            and existing.metadata.get("source_cap") == config.source_gmm_cap
+            and existing.metadata.get("dataset_fingerprint") == current_fingerprint
+            and existing.metadata.get("seed") == fit_seed
+            and existing.metadata.get("sampling_seed") == sample_seed
+        ):
+            return existing
         subset, _indices = select_dataset(context.dataset, config.source_gmm_cap, sample_seed)
         rows = [subset[index] for index in range(len(subset))]
         vectors = extract_representations(
@@ -311,9 +332,11 @@ class GMMArtifactBuilder:
             max_prompt_len=config.max_prompt_len,
             device=context.bundle.device,
         )
-        fit_seed = stable_seed(config.method_seed, context.task.casefold(), "future_source")
         distribution = fit_diagonal_gmm(vectors, config, fit_seed)
-        pipeline = representation_metadata(config, context.bundle, distribution.dimension)
+        if distribution.dimension != dimension:
+            raise RuntimeError(
+                f"Extracted representation dimension {distribution.dimension} differs from model hidden_size {dimension}"
+            )
         metadata = {
             "format_version": 1,
             "task": context.task,
@@ -322,8 +345,8 @@ class GMMArtifactBuilder:
             "representation_role": "future_source",
             "source_cap": config.source_gmm_cap,
             "resolved_count": len(rows),
-            "dataset_fingerprint": dataset_fingerprint(context.dataset),
-            "sample_checksum": stable_id([dataset_fingerprint(context.dataset), sample_seed, len(rows), "future_source"], 32),
+            "dataset_fingerprint": current_fingerprint,
+            "sample_checksum": stable_id([current_fingerprint, sample_seed, len(rows), "future_source"], 32),
             "seed": fit_seed,
             "sampling_seed": sample_seed,
             "provenance": provenance,
@@ -337,11 +360,9 @@ class GMMArtifactBuilder:
 
 @dataclass(slots=True)
 class GMMTargetArtifacts:
-    distribution: DiagonalGMM
+    representations: np.ndarray
     pipeline: dict[str, Any]
-    target_samples: np.ndarray
-    target_seed: int
-    fit_count: int
+    calibration_count: int
 
 
 class GMMSelectionMethod:
@@ -360,12 +381,10 @@ class GMMSelectionMethod:
             max_prompt_len=config.max_prompt_len,
             device=context.shared["bundle"].device,
         )
-        fit_seed = stable_seed(config.method_seed, context.target_task.casefold(), "target_calibration")
-        distribution = fit_diagonal_gmm(vectors, config, fit_seed)
-        pipeline = representation_metadata(config, context.shared["bundle"], distribution.dimension)
-        target_seed = stable_seed(config.method_seed, context.target_task.casefold(), "gmm_target_mc")
-        target_samples = distribution.sample(config.gmm_mc_samples, target_seed)
-        return GMMTargetArtifacts(distribution, pipeline, target_samples, target_seed, len(rows))
+        if len(vectors) == 0:
+            raise ValueError("GMM selection needs at least one target calibration representation")
+        pipeline = representation_metadata(config, context.shared["bundle"], vectors.shape[1])
+        return GMMTargetArtifacts(vectors, pipeline, len(rows))
 
     def score_candidate(
         self,
@@ -375,30 +394,23 @@ class GMMSelectionMethod:
     ) -> MethodScore:
         config = context.config
         source = resolve_artifact(config, candidate.task, artifacts.pipeline)
-        source_seed = stable_seed(config.method_seed, context.target_task.casefold(), candidate.task.casefold(), "gmm_source_mc")
-        result = monte_carlo_jsd(
+        result = calibration_log_likelihood(
             source.distribution,
-            artifacts.distribution,
-            n_mc=config.gmm_mc_samples,
-            chunk_size=config.gmm_mc_chunk_size,
-            source_seed=source_seed,
-            target_samples=artifacts.target_samples,
-            target_seed=artifacts.target_seed,
+            artifacts.representations,
+            chunk_size=config.gmm_score_chunk_size,
         )
         if not all(math.isfinite(value) for value in result.values()):
             return MethodScore(None, "nonfinite_score", result)
         diagnostics = {
-            "gmm_jsd": result["jsd"],
-            "gmm_standard_error": result["standard_error"],
-            "n_mc": config.gmm_mc_samples,
-            "source_seed": source_seed,
-            "target_seed": artifacts.target_seed,
+            "gmm_mean_log_likelihood": result["mean_log_likelihood"],
+            "gmm_mean_nll": result["mean_nll"],
+            "gmm_log_likelihood_per_dimension": result["log_likelihood_per_dimension"],
             "source_fit_count": source.metadata["resolved_count"],
-            "target_fit_count": artifacts.fit_count,
+            "target_calibration_count": artifacts.calibration_count,
             "source_artifact": str(source.path),
             "source_provenance": source.metadata["provenance"],
         }
-        return MethodScore(result["similarity"], "ok", diagnostics)
+        return MethodScore(result["log_likelihood_per_dimension"], "ok", diagnostics)
 
 
 @register("gmm")

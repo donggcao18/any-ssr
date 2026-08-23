@@ -69,8 +69,7 @@ class ExperimentConfig:
     gmm_components: int = 4
     gmm_reg_covar: float = 1e-5
     gmm_n_init: int = 3
-    gmm_mc_samples: int = 4096
-    gmm_mc_chunk_size: int = 512
+    gmm_score_chunk_size: int = 512
     gca_batch_size: int = 4
     gca_rank_tolerance_multiplier: float = 1.0
     lookahead_batch_size: int = 8
@@ -139,8 +138,7 @@ class ExperimentConfig:
             "representation_batch_size": self.representation_batch_size,
             "gmm_components": self.gmm_components,
             "gmm_n_init": self.gmm_n_init,
-            "gmm_mc_samples": self.gmm_mc_samples,
-            "gmm_mc_chunk_size": self.gmm_mc_chunk_size,
+            "gmm_score_chunk_size": self.gmm_score_chunk_size,
             "gca_batch_size": self.gca_batch_size,
             "lookahead_batch_size": self.lookahead_batch_size,
             "verification_batch_size": self.verification_batch_size,
@@ -159,8 +157,6 @@ class ExperimentConfig:
             raise ValueError("Only attention_mean pooling is currently supported")
         if not (self.gmm_reg_covar > 0):
             raise ValueError("--gmm-reg-covar must be positive")
-        if self.gmm_mc_samples < 2:
-            raise ValueError("--gmm-mc-samples must be at least 2 to estimate standard error")
         if len(self.lookahead_betas) != 2 or any(not math.isfinite(value) or value < 0 or value >= 1 for value in self.lookahead_betas):
             raise ValueError("--lookahead-betas requires two finite values in [0, 1)")
         if not math.isfinite(self.lookahead_learning_rate) or self.lookahead_learning_rate <= 0:
@@ -261,8 +257,7 @@ def add_common_arguments(parser: argparse.ArgumentParser, *, require_targets: bo
     parser.add_argument("--gmm-components", type=int, default=4)
     parser.add_argument("--gmm-reg-covar", type=float, default=1e-5)
     parser.add_argument("--gmm-n-init", type=int, default=3)
-    parser.add_argument("--gmm-mc-samples", type=int, default=4096)
-    parser.add_argument("--gmm-mc-chunk-size", type=int, default=512)
+    parser.add_argument("--gmm-score-chunk-size", type=int, default=512)
     parser.add_argument("--gca-batch-size", type=int, default=4)
     parser.add_argument("--gca-rank-tolerance-multiplier", type=float, default=1.0)
     parser.add_argument("--lookahead-batch-size", type=int, default=8)

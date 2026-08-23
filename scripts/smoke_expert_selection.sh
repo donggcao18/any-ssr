@@ -33,8 +33,7 @@ echo 'Running isolated tiny chronological smoke experiment.'
     --task-order "${TASK_ORDER}" --targets "${TARGETS}" --methods "${METHODS}" \
     --prepare-artifacts gmm \
     --calibration-size 32 --support-size 12 --verification-size 12 --gca-size 8 \
-    --source-gmm-cap 32 --gmm-mc-samples 128 --gmm-mc-chunk-size 64 \
+    --source-gmm-cap 32 --gmm-score-chunk-size 64 \
     --slu-checkpoints 1,2 --slu-weights 1,1 \
     --seed "${SEED}" --data-seed "${DATA_SEED}" --method-seed "${METHOD_SEED}" \
     "${DRY_ARGS[@]}" "$@"
-
