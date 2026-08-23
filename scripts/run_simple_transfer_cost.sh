@@ -48,8 +48,8 @@ export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/CoST}"
 SEEDS="${SEEDS:-12}"
-CONDITIONS="${CONDITIONS:-fresh codetrans thevault bfp}"
-NUM_TRAIN="${NUM_TRAIN:-5000}"
+CONDITIONS="${CONDITIONS:-fresh CodeTrans RunBugRun BFP}"
+NUM_TRAIN="${NUM_TRAIN:-8000}"
 # A fixed 200-example validation probe supports dense NLL measurements and is
 # safely below CoST's 272-example validation split.
 NUM_EVAL="${NUM_EVAL:--1}"
@@ -60,9 +60,9 @@ EVAL_DATA_SEED="${EVAL_DATA_SEED:-1234}"
 adapter_for_condition() {
     case "$1" in
         fresh) echo "" ;;
-        codetrans) echo "${ADAPTER_ROOT}/CodeTrans/0" ;;
-        thevault) echo "${ADAPTER_ROOT}/TheVault_Csharp/0" ;;
-        bfp) echo "${ADAPTER_ROOT}/BFP/0" ;;
+        CodeTrans) echo "${ADAPTER_ROOT}/CodeTrans/0" ;;
+        RunBugRun) echo "${ADAPTER_ROOT}/RunBugRun/0" ;;
+        BFP) echo "${ADAPTER_ROOT}/BFP/0" ;;
         *)
             echo "Unknown condition: $1" >&2
             return 1
