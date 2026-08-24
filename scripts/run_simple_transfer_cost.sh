@@ -14,7 +14,7 @@ set -euo pipefail
 
 export HF_HOME="${HF_HOME:-./.cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-./.cache}"
-GPU_UUID="${GPU_UUID:-GPU-91e5d93c-70fa-7c16-4c3b-09b38066190b}"
+GPU_UUID="${GPU_UUID:-GPU-f65321c7-b1db-a16e-affc-0664b73cf821}"
 
 # DeepSpeed expects a numeric GPU slot rather than a GPU UUID.
 if ! command -v nvidia-smi >/dev/null 2>&1; then
