@@ -348,7 +348,14 @@ def _load_eval_dataset(language, max_eval_samples, seed=0) -> Dataset:
         lambda row: row["language"] == language and row["test"] is not None
     )
     dataset = _limit_dataset(dataset, max_eval_samples, seed)
-    dataset = dataset.remove_columns([c for c in dataset.column_names if c not in ('instruction', 'solution')])
+    # The native `prompt` (code-skeleton) and `index` columns would otherwise collide
+    # with the instruction->prompt rename below and the synthetic row-position `index`
+    # IndexedDataset adds later, so stash them under distinct names. They ride along
+    # through the collator/eval loop and are renamed back when predictions are saved.
+    dataset = dataset.rename_column('prompt', 'code_prompt')
+    dataset = dataset.rename_column('index', 'orig_index')
+    keep_cols = ('instruction', 'solution', 'code_prompt', 'orig_index', 'test', 'entry_point', 'signature')
+    dataset = dataset.remove_columns([c for c in dataset.column_names if c not in keep_cols])
     dataset = dataset.rename_column('instruction', 'prompt')
     dataset = dataset.rename_column('solution', 'answer')
     if len(dataset) == 0:

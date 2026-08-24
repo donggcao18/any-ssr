@@ -26,7 +26,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --per_device_train_batch_size 5 \
   --per_device_eval_batch_size 8 \
   --gradient_accumulation_steps 1 \
-  --max_prompt_len 1024 \
+  --max_prompt_len 2048 \
   --max_ans_len 2048 \
   --num_train_epochs 3 \
   --run_name "run_1" \
@@ -35,10 +35,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --num_eval 3 \
   --num_test -1 \
   --logging_steps 10 \
-  --temperature 0.2 \
-  --top_p 0.95 \
   --repetition_penalty 1 \
-  --do_sample \
   --fp16 \
   --gradient_checkpointing 
 

@@ -67,6 +67,39 @@ class CL_Base_Model:
             calc_codebleu = True
         return compute_metrics(predicted_sequences, ground_truths, calc_codebleu=calc_codebleu, language=DATASET_TO_OUTPUT_LANG.get(task, None))
 
+    def _build_prediction_rows(self, sources_sequences, ground_truths, predicted_sequences, sample_extra_meta=None):
+        """Build per-sample prediction records.
+
+        When McEval metadata (from `DataCollator`'s `extra_meta`) is available, rows
+        follow the MMCodeEval-style schema (index/prompt/solution/test/entry_point/
+        signature/docstring/instruction/raw_generation) so saved files can be matched
+        back to the source benchmark for execution-based grading. Otherwise falls back
+        to the legacy source/ground-truth/prediction shape.
+        """
+        if sample_extra_meta and len(sample_extra_meta) == len(sources_sequences):
+            return [
+                {
+                    "index": meta.get("orig_index"),
+                    "prompt": meta.get("code_prompt"),
+                    "solution": gt,
+                    "test": meta.get("test"),
+                    "entry_point": meta.get("entry_point"),
+                    "signature": meta.get("signature"),
+                    "docstring": None,
+                    "instruction": source,
+                    "raw_generation": pred if isinstance(pred, list) else [pred],
+                }
+                for source, gt, pred, meta in zip(sources_sequences, ground_truths, predicted_sequences, sample_extra_meta)
+            ]
+        return [
+            {
+                "source": source,
+                "ground-truth": gt,
+                "prediction": pred,
+            }
+            for source, gt, pred in zip(sources_sequences, ground_truths, predicted_sequences)
+        ]
+
     def _ordered_unique_prediction_rows(self, prediction_rows):
         if prediction_rows and all("__index__" in row for row in prediction_rows):
             rows_by_index = {}
@@ -101,7 +134,11 @@ class CL_Base_Model:
         seen = set()
         unique_rows = []
         for row in prediction_rows:
-            key = (row.get("source"), row.get("ground-truth"), str(row.get("prediction")))
+            key = (
+                row.get("instruction", row.get("source")),
+                row.get("solution", row.get("ground-truth")),
+                str(row.get("raw_generation", row.get("prediction"))),
+            )
             if key in seen:
                 continue
             seen.add(key)
@@ -114,6 +151,7 @@ class CL_Base_Model:
         sources_sequences = []
         ground_truths = []
         sample_indices = []
+        sample_extra_meta = []
 
         if max_ans_len is None:
             max_ans_len = getattr(self.args, "max_ans_len", 256)
@@ -138,6 +176,9 @@ class CL_Base_Model:
             batch_indices = batch.pop('indices', None)
             if batch_indices is not None:
                 sample_indices.extend(batch_indices.detach().cpu().tolist())
+            batch_extra_meta = batch.pop('extra_meta', None)
+            if batch_extra_meta is not None:
+                sample_extra_meta.extend(batch_extra_meta)
 
             sources_sequences += batch['sources']
             if 'gts' in batch:
@@ -193,22 +234,15 @@ class CL_Base_Model:
                 description = f"Test step {step}"
                 progress_bar.set_description(description, refresh=False)
 
-        prediction_rows = [
-            {
-                "source": source,
-                "ground-truth": gt,
-                "prediction": pred,
-            }
-            for source, gt, pred in zip(sources_sequences, ground_truths, predicted_sequences)
-        ]
+        prediction_rows = self._build_prediction_rows(sources_sequences, ground_truths, predicted_sequences, sample_extra_meta)
         if len(sample_indices) == len(prediction_rows):
             for row, index in zip(prediction_rows, sample_indices):
                 row["__index__"] = index
 
         prediction_rows = self._gather_prediction_rows(prediction_rows)
-        sources_sequences = [row["source"] for row in prediction_rows]
-        ground_truths = [row["ground-truth"] for row in prediction_rows]
-        predicted_sequences = [row["prediction"] for row in prediction_rows]
+        sources_sequences = [row.get("instruction", row.get("source")) for row in prediction_rows]
+        ground_truths = [row.get("solution", row.get("ground-truth")) for row in prediction_rows]
+        predicted_sequences = [row.get("raw_generation", row.get("prediction")) for row in prediction_rows]
 
         metrics = {} if is_executable else self._task_eval_from_predictions(
             task, sources_sequences, predicted_sequences, ground_truths

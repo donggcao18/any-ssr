@@ -24,16 +24,13 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --per_device_train_batch_size 2 \
   --per_device_eval_batch_size 8 \
   --gradient_accumulation_steps 4 \
-  --temperature 0.2 \
-  --top_p 0.95 \
   --repetition_penalty 1 \
-  --do_sample \
   --num_train -1 \
   --num_eval 3 \
   --num_test -1 \
   --run_name run_1 \
   --group_name SeqLoRA_Qwen2.5-Coder-1.5B_executable \
-  --max_prompt_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
+  --max_prompt_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
   --max_ans_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
   --num_train_epochs 3 \
   --start_task_id 3

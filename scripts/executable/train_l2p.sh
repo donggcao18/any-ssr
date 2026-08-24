@@ -32,12 +32,9 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --num_train -1 \
   --num_eval 3 \
   --num_test -1 \
-  --max_prompt_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
+  --max_prompt_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
   --max_ans_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
-  --temperature 0.2 \
-  --top_p 0.95 \
   --repetition_penalty 1 \
-  --do_sample \
   --num_train_epochs 3
 
 : "${HF_MODEL_REPO_ID:=ankhanhtran02/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable}"

@@ -203,6 +203,7 @@ class PP(CL_Base_Model):
         sources_sequences = []
         ground_truths = []
         sample_indices = []
+        sample_extra_meta = []
 
         is_executable = getattr(self.args, "benchmark", "non-executable") != "non-executable"
         if is_executable:
@@ -224,6 +225,9 @@ class PP(CL_Base_Model):
             batch_indices = batch.pop('indices', None)
             if batch_indices is not None:
                 sample_indices.extend(batch_indices.detach().cpu().tolist())
+            batch_extra_meta = batch.pop('extra_meta', None)
+            if batch_extra_meta is not None:
+                sample_extra_meta.extend(batch_extra_meta)
 
             sources_sequences += batch['sources']
             if 'gts' in batch:
@@ -331,22 +335,15 @@ class PP(CL_Base_Model):
                 description = f"Test step {i}"
                 progress_bar.set_description(description, refresh=False)
 
-        prediction_rows = [
-            {
-                "source": source,
-                "ground-truth": gt,
-                "prediction": pred,
-            }
-            for source, gt, pred in zip(sources_sequences, ground_truths, predicted_sequences)
-        ]
+        prediction_rows = self._build_prediction_rows(sources_sequences, ground_truths, predicted_sequences, sample_extra_meta)
         if len(sample_indices) == len(prediction_rows):
             for row, index in zip(prediction_rows, sample_indices):
                 row["__index__"] = index
 
         prediction_rows = self._gather_prediction_rows(prediction_rows)
-        sources_sequences = [row["source"] for row in prediction_rows]
-        ground_truths = [row["ground-truth"] for row in prediction_rows]
-        predicted_sequences = [row["prediction"] for row in prediction_rows]
+        sources_sequences = [row.get("instruction", row.get("source")) for row in prediction_rows]
+        ground_truths = [row.get("solution", row.get("ground-truth")) for row in prediction_rows]
+        predicted_sequences = [row.get("raw_generation", row.get("prediction")) for row in prediction_rows]
 
         metrics = {} if is_executable else self._task_eval_from_predictions(
             task, sources_sequences, predicted_sequences, ground_truths

@@ -260,6 +260,7 @@ class L2P(CL_Base_Model):
             sources_sequences = []
             label_sequences = []
             sample_indices = []
+            sample_extra_meta = []
             model.eval()
 
             is_executable = getattr(self.args, "benchmark", "non-executable") != "non-executable"
@@ -283,6 +284,9 @@ class L2P(CL_Base_Model):
                         sample_indices.extend(batch_indices.detach().cpu().tolist())
                     else:
                         sample_indices.extend([int(index) for index in batch_indices])
+                batch_extra_meta = batch.pop('extra_meta', None)
+                if batch_extra_meta is not None:
+                    sample_extra_meta.extend(batch_extra_meta)
 
                 sources_sequences += batch.get('sources', [])
                 if 'gts' in batch:
@@ -397,22 +401,15 @@ class L2P(CL_Base_Model):
                 else:
                     predicted_sequences += pre_sequences
 
-            prediction_rows = [
-                {
-                    "source": source,
-                    "ground-truth": gt,
-                    "prediction": pred,
-                }
-                for source, gt, pred in zip(sources_sequences, label_sequences, predicted_sequences)
-            ]
+            prediction_rows = self._build_prediction_rows(sources_sequences, label_sequences, predicted_sequences, sample_extra_meta)
             if len(sample_indices) == len(prediction_rows):
                 for row, index in zip(prediction_rows, sample_indices):
                     row["__index__"] = index
 
             prediction_rows = self._gather_prediction_rows(prediction_rows)
-            sources_sequences = [row["source"] for row in prediction_rows]
-            predicted_sequences = [row["prediction"] for row in prediction_rows]
-            label_sequences = [row["ground-truth"] for row in prediction_rows]
+            sources_sequences = [row.get("instruction", row.get("source")) for row in prediction_rows]
+            predicted_sequences = [row.get("raw_generation", row.get("prediction")) for row in prediction_rows]
+            label_sequences = [row.get("solution", row.get("ground-truth")) for row in prediction_rows]
 
             return sources_sequences, predicted_sequences, label_sequences, prediction_rows
 

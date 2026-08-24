@@ -208,10 +208,13 @@ class DataCollator:
     #     return model_inputs
 
 
+    MCEVAL_META_KEYS = ("orig_index", "code_prompt", "test", "entry_point", "signature")
+
     def decoder_call(self, batch, return_tensors):
         sources = []
         gts = []
         indices = []
+        extra_meta = []
         tokenized_sources = []
         actual_max_len = 0
         limit_len = self.max_prompt_len + self.max_ans_len if not self.inference else self.max_prompt_len
@@ -227,6 +230,8 @@ class DataCollator:
                 indices.append(int(instance["index"]))
             elif "__index__" in instance:
                 indices.append(int(instance["__index__"]))
+            if any(key in instance for key in self.MCEVAL_META_KEYS):
+                extra_meta.append({key: instance.get(key) for key in self.MCEVAL_META_KEYS})
 
             if not self.inference:
                 # Wrap instruction in input/output template to steer generation format.
@@ -334,4 +339,6 @@ class DataCollator:
             model_inputs['gts'] = gts
         if indices:
             model_inputs["indices"] = torch.tensor(indices)
+        if extra_meta:
+            model_inputs["extra_meta"] = extra_meta
         return model_inputs

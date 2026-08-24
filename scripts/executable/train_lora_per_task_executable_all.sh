@@ -19,7 +19,7 @@ for dataset in python cpp swift rust csharp java php typescript shell; do
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 16 \
     --gradient_accumulation_steps 11 \
-    --max_prompt_len 1024 \
+    --max_prompt_len 2048 \
     --max_ans_len 2048 \
     --learning_rate 1e-4 \
     --num_train_epochs 3 \
@@ -31,7 +31,6 @@ for dataset in python cpp swift rust csharp java php typescript shell; do
     --print_loss \
     --CL_method anamoe \
     --repetition_penalty 1 \
-    --do_sample \
     --output_dir "./output_models/lora_per_task_executable_start_4/${dataset}" \
     --run_name "anamoe_${dataset}" \
     --group_name "anamoe_executable_all" \
