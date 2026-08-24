@@ -19,17 +19,20 @@ set -euo pipefail
 export HF_HOME="${HF_HOME:-./.cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-./.cache}"
 
-# Prefer an explicitly supplied UUID, then an explicitly supplied numeric slot,
-# then an existing CUDA_VISIBLE_DEVICES setting. Otherwise use physical GPU 0.
-if [[ -n "${GPU_UUID:-}" ]]; then
+# DeepSpeed accepts numeric CUDA slots, not GPU UUID strings. Resolve both an
+# explicit GPU_UUID and a UUID inherited through CUDA_VISIBLE_DEVICES.
+resolve_gpu_uuid() {
+    local requested_uuid="$1"
     if ! command -v nvidia-smi >/dev/null 2>&1; then
-        echo "ERROR: nvidia-smi is required to resolve GPU_UUID." >&2
-        exit 1
+        echo "ERROR: nvidia-smi is required to resolve GPU UUID ${requested_uuid}." >&2
+        return 1
     fi
-    GPU_LISTING="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)"
-    RESOLVED_GPU_INDEX="$(
-        printf '%s\n' "${GPU_LISTING}" \
-            | awk -F',' -v uuid="${GPU_UUID}" '
+    local gpu_listing
+    local resolved_index
+    gpu_listing="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)"
+    resolved_index="$(
+        printf '%s\n' "${gpu_listing}" \
+            | awk -F',' -v uuid="${requested_uuid}" '
                 {
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
@@ -37,19 +40,34 @@ if [[ -n "${GPU_UUID:-}" ]]; then
                 $2 == uuid { print $1; exit }
             '
     )"
-    if [[ -z "${RESOLVED_GPU_INDEX}" ]]; then
-        echo "ERROR: Cannot find GPU with UUID: ${GPU_UUID}" >&2
+    if [[ -z "${resolved_index}" ]]; then
+        echo "ERROR: Cannot find GPU with UUID: ${requested_uuid}" >&2
         echo "Available GPUs:" >&2
-        printf '%s\n' "${GPU_LISTING}" >&2
-        exit 1
+        printf '%s\n' "${gpu_listing}" >&2
+        return 1
     fi
-    export CUDA_VISIBLE_DEVICES="${RESOLVED_GPU_INDEX}"
+    printf '%s\n' "${resolved_index}"
+}
+
+# Prefer an explicitly supplied UUID, then an explicitly supplied numeric slot,
+# then normalize an existing CUDA_VISIBLE_DEVICES setting. Otherwise use GPU 0.
+if [[ -n "${GPU_UUID:-}" ]]; then
+    CUDA_VISIBLE_DEVICES="$(resolve_gpu_uuid "${GPU_UUID}")"
+    export CUDA_VISIBLE_DEVICES
 elif [[ -n "${GPU_INDEX:-}" ]]; then
     if [[ ! "${GPU_INDEX}" =~ ^[0-9]+$ ]]; then
         echo "ERROR: GPU_INDEX must be one numeric GPU slot." >&2
         exit 2
     fi
     export CUDA_VISIBLE_DEVICES="${GPU_INDEX}"
+elif [[ "${CUDA_VISIBLE_DEVICES:-}" == GPU-* ]]; then
+    inherited_gpu_uuid="${CUDA_VISIBLE_DEVICES}"
+    if [[ "${inherited_gpu_uuid}" == *,* ]]; then
+        echo "ERROR: This single-GPU script cannot resolve multiple GPU UUIDs: ${inherited_gpu_uuid}" >&2
+        exit 2
+    fi
+    CUDA_VISIBLE_DEVICES="$(resolve_gpu_uuid "${inherited_gpu_uuid}")"
+    export CUDA_VISIBLE_DEVICES
 elif [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
     export CUDA_VISIBLE_DEVICES=0
 fi
