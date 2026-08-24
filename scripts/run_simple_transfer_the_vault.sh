@@ -76,7 +76,7 @@ echo "Using CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/TheVault_Csharp}"
-SEEDS="${SEEDS:-12}"
+SEEDS="${SEEDS:-1234}"
 CONDITIONS="${CONDITIONS:-fresh codesearchnet CodeTrans KodCode}"   
 NUM_TRAIN="${NUM_TRAIN:-8000}"
 NUM_EVAL="${NUM_EVAL:-500}"
