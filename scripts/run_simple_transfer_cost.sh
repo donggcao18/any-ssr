@@ -48,7 +48,7 @@ export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 ADAPTER_ROOT="${ADAPTER_ROOT:-./anamoe}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-./output_models/simple_transfer/CoST}"
 SEEDS="${SEEDS:-1234}"
-CONDITIONS="${CONDITIONS:-fresh CodeTrans RunBugRun BFP}"
+CONDITIONS="${CONDITIONS:-CodeTrans RunBugRun BFP}"
 NUM_TRAIN="${NUM_TRAIN:-5000}"
 # A fixed 200-example validation probe supports dense NLL measurements and is
 # safely below CoST's 272-example validation split.
