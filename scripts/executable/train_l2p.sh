@@ -32,8 +32,8 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --num_train -1 \
   --num_eval 3 \
   --num_test -1 \
-  --max_prompt_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
-  --max_ans_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
+  --max_prompt_len 1400,1300,1400,1300,1200,1300,1000,1900,1500 \
+  --max_ans_len 1700,1700,2000,4000,1600,1700,1500,1700,1900 \
   --repetition_penalty 1 \
   --num_train_epochs 3
 

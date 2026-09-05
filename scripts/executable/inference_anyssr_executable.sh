@@ -30,6 +30,6 @@ $deepseed_cmd inference/infer_anyssr_total.py \
    --device cuda \
    --inference_output_path "$OUTPUT_DIR" \
    --inference_batch "$INFERENCE_BATCH" \
-   --max_prompt_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
-   --max_ans_len 2048,2048,2048,2048,2048,2048,2048,2048,2048 \
+   --max_prompt_len 1400,1300,1400,1300,1200,1300,1000,1900,1500 \
+   --max_ans_len 1700,1700,2000,4000,1600,1700,1500,1700,1900 \
    2>&1 | tee logs/inference_result_anyssr_executable.log

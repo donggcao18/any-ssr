@@ -8,7 +8,16 @@ set -euo pipefail
 port=$(shuf -i25000-30000 -n1)
 
 # Executable benchmark tasks: python, cpp, swift, rust, csharp, java, php, typescript, shell
-# Using max_prompt_len=1024 and max_new_tokens=2048 for all tasks.
+# Per-language max_prompt_len / max_ans_len.
+
+declare -A MAX_PROMPT_LEN=(
+  [python]=1400 [cpp]=1300 [swift]=1400 [rust]=1300 [csharp]=1200
+  [java]=1300 [php]=1000 [typescript]=1900 [shell]=1500
+)
+declare -A MAX_ANS_LEN=(
+  [python]=1700 [cpp]=1700 [swift]=2000 [rust]=4000 [csharp]=1600
+  [java]=1700 [php]=1500 [typescript]=1700 [shell]=1900
+)
 
 for dataset in python cpp swift rust csharp java php typescript shell; do
   deepspeed --master_port "$port" training/main_anamoe.py \
@@ -19,8 +28,8 @@ for dataset in python cpp swift rust csharp java php typescript shell; do
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 16 \
     --gradient_accumulation_steps 11 \
-    --max_prompt_len 2048 \
-    --max_ans_len 2048 \
+    --max_prompt_len "${MAX_PROMPT_LEN[$dataset]}" \
+    --max_ans_len "${MAX_ANS_LEN[$dataset]}" \
     --learning_rate 1e-4 \
     --num_train_epochs 3 \
     --lr_scheduler_type cosine \
