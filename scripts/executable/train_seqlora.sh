@@ -30,8 +30,8 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --num_test -1 \
   --run_name run_1 \
   --group_name SeqLoRA_Qwen2.5-Coder-1.5B_executable_perm-1 \
-  --max_prompt_len 1400,1300,1400,1300,1200,1300,1000,1900,1500 \
-  --max_ans_len 1700,1700,2000,4000,1600,1700,1500,1700,1900 \
+  --max_prompt_len 1024 \
+  --max_ans_len 1024 \
   --num_train_epochs 3 \
   --start_task_id 3
 

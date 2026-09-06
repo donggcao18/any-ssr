@@ -26,8 +26,8 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --per_device_train_batch_size 5 \
   --per_device_eval_batch_size 8 \
   --gradient_accumulation_steps 1 \
-  --max_prompt_len 1400,1300,1400,1300,1200,1300,1000,1900,1500 \
-  --max_ans_len 1700,1700,2000,4000,1600,1700,1500,1700,1900 \
+  --max_prompt_len 1024 \
+  --max_ans_len 1024 \
   --num_train_epochs 3 \
   --run_name "run_1" \
   --group_name "EWC_Qwen2.5-Coder-1.5B_with_instruction_pool_executable" \

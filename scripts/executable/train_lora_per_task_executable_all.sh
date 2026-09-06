@@ -11,12 +11,12 @@ port=$(shuf -i25000-30000 -n1)
 # Per-language max_prompt_len / max_ans_len.
 
 declare -A MAX_PROMPT_LEN=(
-  [python]=1400 [cpp]=1300 [swift]=1400 [rust]=1300 [csharp]=1200
-  [java]=1300 [php]=1000 [typescript]=1900 [shell]=1500
+  [python]=1024 [cpp]=1024 [swift]=1024 [rust]=1024 [csharp]=1024
+  [java]=1024 [php]=1024 [typescript]=1024 [shell]=1024
 )
 declare -A MAX_ANS_LEN=(
-  [python]=1700 [cpp]=1700 [swift]=2000 [rust]=4000 [csharp]=1600
-  [java]=1700 [php]=1500 [typescript]=1700 [shell]=1900
+  [python]=1024 [cpp]=1024 [swift]=1024 [rust]=1024 [csharp]=1024
+  [java]=1024 [php]=1024 [typescript]=1024 [shell]=1024
 )
 
 for dataset in python cpp swift rust csharp java php typescript shell; do
