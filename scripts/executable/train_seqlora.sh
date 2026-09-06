@@ -1,8 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=1,2,3,4
-
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 set -euo pipefail
 
 port=$(shuf -i25000-30000 -n1)
@@ -25,15 +24,16 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --per_device_eval_batch_size 8 \
   --gradient_accumulation_steps 4 \
   --repetition_penalty 1 \
-  --num_train -1 \
   --num_eval 3 \
-  --num_test -1 \
   --run_name run_1 \
   --group_name SeqLoRA_Qwen2.5-Coder-1.5B_executable_perm-1 \
   --max_prompt_len 1024 \
   --max_ans_len 1024 \
-  --num_train_epochs 3 \
-  --start_task_id 3
+  --start_task_id 3 \
+  --num_return_sequences 1 \
+  --num_test -1 \
+  --num_train -1 \
+  --num_train_epochs 3
 
 : "${HF_MODEL_REPO_ID:=ankhanhtran02/SeqLoRA_Qwen2.5-Coder-1.5B_executable_perm-1}"
 

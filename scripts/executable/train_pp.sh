@@ -1,7 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=4,5,6
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 set -euo pipefail
 
@@ -25,15 +25,16 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --output_dir ./output_models/PP_Qwen2.5-Coder-1.5B_executable_perm-1 \
   --per_device_train_batch_size 2 \
   --per_device_eval_batch_size 16 \
-  --gradient_accumulation_steps 6 \
+  --gradient_accumulation_steps 4 \
   --repetition_penalty 1 \
-  --num_train -1 \
   --num_eval 3 \
-  --num_test -1 \
   --run_name run_1 \
   --group_name PP_Qwen2.5-Coder-1.5B_executable_perm-1 \
   --max_prompt_len 1024 \
   --max_ans_len 1024 \
+  --num_return_sequences 1 \
+  --num_test -1 \
+  --num_train -1 \
   --num_train_epochs 3
 
 : "${HF_MODEL_REPO_ID:=ankhanhtran02/PP_Qwen2.5-Coder-1.5B_executable_perm-1}"

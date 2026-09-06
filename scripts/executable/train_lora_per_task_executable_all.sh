@@ -31,7 +31,6 @@ for dataset in python cpp swift rust csharp java php typescript shell; do
     --max_prompt_len "${MAX_PROMPT_LEN[$dataset]}" \
     --max_ans_len "${MAX_ANS_LEN[$dataset]}" \
     --learning_rate 1e-4 \
-    --num_train_epochs 3 \
     --lr_scheduler_type cosine \
     --num_warmup_steps 0 \
     --seed 1234 \
@@ -43,15 +42,18 @@ for dataset in python cpp swift rust csharp java php typescript shell; do
     --output_dir "./output_models/lora_per_task_executable_start_4_perm_1/${dataset}" \
     --run_name "anamoe_${dataset}" \
     --group_name "anamoe_executable_all" \
-    --num_train -1 \
     --num_eval 3 \
     --num_test -1 \
+    --num_train -1 \
+    --num_train_epochs 3 \
     --logging_steps 10 \
     --start_layer 4 \
+    --num_return_sequences 1
 
 done
 
-: "${HF_MODEL_REPO_ID:=ankhanhtran02/lora-per-task-executable-start-4}"
+
+: "${HF_MODEL_REPO_ID:=ankhanhtran02/lora-per-task-executable-start-4_perm-1}"
 
 python upload_output_to_hf.py \
   --output-dir "./output_models/lora_per_task_executable_start_4_perm_1" \

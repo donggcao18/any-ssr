@@ -1,7 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=0,4,5,6
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 # This script uses 1 GPU. Use a larger disk space (56GB) to save the model checkpoints (full model).
 
 set -euo pipefail
@@ -29,12 +29,13 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --gradient_accumulation_steps 8 \
   --run_name run_1 \
   --group_name L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1  \
-  --num_train -1 \
   --num_eval 3 \
-  --num_test -1 \
-  --max_prompt_len 1024 \
-  --max_ans_len 1024 \
+  --max_prompt_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
+  --max_ans_len 1024,1024,1024,1024,1024,1024,1024,1024,1024 \
   --repetition_penalty 1 \
+  --num_return_sequences 1 \
+  --num_test -1 \
+  --num_train -1 \
   --num_train_epochs 3
 
 : "${HF_MODEL_REPO_ID:=ankhanhtran02/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1 }"
