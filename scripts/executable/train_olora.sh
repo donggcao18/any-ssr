@@ -1,7 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=0,1,2
+export CUDA_VISIBLE_DEVICES=5,6,7
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --print_loss \
   --learning_rate 1e-4 \
   --CL_method O-LoRA \
-  --output_dir ./output_models/OLoRA_Qwen2.5-Coder-1.5B_executable \
+  --output_dir ./output_models/OLoRA_Qwen2.5-Coder-1.5B_executable_perm-1 \
   --per_device_train_batch_size 2 \
   --per_device_eval_batch_size 8 \
   --gradient_accumulation_steps 6 \
@@ -29,14 +29,14 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --num_eval 3 \
   --num_test -1 \
   --run_name run_1 \
-  --group_name OLoRA_Qwen2.5-Coder-1.5B_executable \
+  --group_name OLoRA_Qwen2.5-Coder-1.5B_executable_perm-1 \
   --max_prompt_len 1400,1300,1400,1300,1200,1300,1000,1900,1500 \
   --max_ans_len 1700,1700,2000,4000,1600,1700,1500,1700,1900 \
   --num_train_epochs 3
 
-: "${HF_MODEL_REPO_ID:=ankhanhtran02/OLoRA_Qwen2.5-Coder-1.5B_executable}"
+: "${HF_MODEL_REPO_ID:=ankhanhtran02/OLoRA_Qwen2.5-Coder-1.5B_executable_perm-1}"
 
 python upload_output_to_hf.py \
-  --output-dir "./output_models/OLoRA_Qwen2.5-Coder-1.5B_executable" \
+  --output-dir "./output_models/OLoRA_Qwen2.5-Coder-1.5B_executable_perm-1" \
   --repo-id "$HF_MODEL_REPO_ID" \
   --commit-message "Upload OLoRA executable outputs"

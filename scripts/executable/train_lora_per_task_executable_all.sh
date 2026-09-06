@@ -1,7 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=5,6,7
+export CUDA_VISIBLE_DEVICES=1,2,3
 
 set -euo pipefail
 
@@ -40,7 +40,7 @@ for dataset in python cpp swift rust csharp java php typescript shell; do
     --print_loss \
     --CL_method anamoe \
     --repetition_penalty 1 \
-    --output_dir "./output_models/lora_per_task_executable_start_4/${dataset}" \
+    --output_dir "./output_models/lora_per_task_executable_start_4_perm_1/${dataset}" \
     --run_name "anamoe_${dataset}" \
     --group_name "anamoe_executable_all" \
     --num_train -1 \
@@ -54,6 +54,6 @@ done
 : "${HF_MODEL_REPO_ID:=ankhanhtran02/lora-per-task-executable-start-4}"
 
 python upload_output_to_hf.py \
-  --output-dir "./output_models/lora_per_task_executable_start_4" \
+  --output-dir "./output_models/lora_per_task_executable_start_4_perm_1" \
   --repo-id "$HF_MODEL_REPO_ID" \
   --commit-message "Upload LoRA per-task executable outputs"

@@ -1,7 +1,7 @@
 #!/bin/bash
 export HF_HOME=./.cache
 export HF_DATASETS_CACHE=./.cache
-export CUDA_VISIBLE_DEVICES=1,2,3,4
+export CUDA_VISIBLE_DEVICES=0,4,5,6
 # This script uses 1 GPU. Use a larger disk space (56GB) to save the model checkpoints (full model).
 
 set -euo pipefail
@@ -23,12 +23,12 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --gradient_checkpointing \
   --learning_rate 1e-4 \
   --CL_method L2P \
-  --output_dir ./output_models/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable \
+  --output_dir ./output_models/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 16 \
   --gradient_accumulation_steps 8 \
   --run_name run_1 \
-  --group_name L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable \
+  --group_name L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1  \
   --num_train -1 \
   --num_eval 3 \
   --num_test -1 \
@@ -37,9 +37,9 @@ deepspeed --master_port "$port" training/main_anamoe.py \
   --repetition_penalty 1 \
   --num_train_epochs 3
 
-: "${HF_MODEL_REPO_ID:=ankhanhtran02/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable}"
+: "${HF_MODEL_REPO_ID:=ankhanhtran02/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1 }"
 
 python upload_output_to_hf.py \
-  --output-dir "./output_models/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable" \
+  --output-dir "./output_models/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1 " \
   --repo-id "$HF_MODEL_REPO_ID" \
   --commit-message "Upload L2P executable outputs"
