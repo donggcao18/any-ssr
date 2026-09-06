@@ -55,16 +55,18 @@ class DataCollator:
 
     # only support left padding for now
     def tokenize(self, sentence, cutoff_len, add_bos_token=True, add_eos_token=True):
-        # there's probably a way to do this with the tokenizer settings
-        # but again, gotta move fast
+        # Truncate on the right (drop trailing tokens, keep the start) regardless of
+        # tokenizer.truncation_side, which is forced to "left" elsewhere for generation.
         result = self.tokenizer(
             sentence,
-            truncation=True,
-            max_length=cutoff_len,
+            truncation=False,
             add_special_tokens=False,
             padding=False,
             return_tensors=None,
         )
+        if len(result["input_ids"]) > cutoff_len:
+            result["input_ids"] = result["input_ids"][:cutoff_len]
+            result["attention_mask"] = result["attention_mask"][:cutoff_len]
 
         if (
                 len(result["input_ids"]) < cutoff_len
@@ -210,6 +212,21 @@ class DataCollator:
 
     MCEVAL_META_KEYS = ("orig_index", "code_prompt", "test", "entry_point", "signature")
 
+    PROMPT_TEMPLATE_PREFIX = "input: "
+    PROMPT_TEMPLATE_SUFFIX = "\noutput: "
+
+    def _instruction_token_budget(self):
+        prefix_len = len(self.tokenizer(self.PROMPT_TEMPLATE_PREFIX, add_special_tokens=False)["input_ids"])
+        suffix_len = len(self.tokenizer(self.PROMPT_TEMPLATE_SUFFIX, add_special_tokens=False)["input_ids"])
+        return max(self.max_prompt_len - prefix_len - suffix_len, 0)
+
+    def _truncate_instruction(self, instruction, budget):
+        # Truncate on the right (drop trailing tokens) so the template always fits within max_prompt_len.
+        instruction_ids = self.tokenizer(instruction, add_special_tokens=False)["input_ids"]
+        if len(instruction_ids) <= budget:
+            return instruction
+        return self.tokenizer.decode(instruction_ids[:budget])
+
     def decoder_call(self, batch, return_tensors):
         sources = []
         gts = []
@@ -218,6 +235,7 @@ class DataCollator:
         tokenized_sources = []
         actual_max_len = 0
         limit_len = self.max_prompt_len + self.max_ans_len if not self.inference else self.max_prompt_len
+        instruction_budget = self._instruction_token_budget()
 
         pad_id = self.tokenizer.pad_token_id
 
@@ -234,8 +252,9 @@ class DataCollator:
                 extra_meta.append({key: instance.get(key) for key in self.MCEVAL_META_KEYS})
 
             if not self.inference:
-                # Wrap instruction in input/output template to steer generation format.
-                formatted_prompt = f"input: {instruction}\noutput: "
+                # Truncate the instruction to leave room for the template, then wrap it.
+                truncated_instruction = self._truncate_instruction(instruction, instruction_budget)
+                formatted_prompt = f"input: {truncated_instruction}\noutput: "
 
                 # Tokenize prompt and label separately — no BOS (Qwen has none),
                 # EOS appended only at the end of the target.
@@ -280,8 +299,10 @@ class DataCollator:
                             instruction = _strip_legacy_task_prefix(self.task, instruction)
                         instruction = task_prompt + instruction
 
-                # Build formatted_prompt after demonstrations have been prepended to instruction.
-                formatted_prompt = f"input: {instruction}\noutput: "
+                # Truncate the (possibly demonstration-augmented) instruction to leave room
+                # for the template, then build formatted_prompt.
+                truncated_instruction = self._truncate_instruction(instruction, instruction_budget)
+                formatted_prompt = f"input: {truncated_instruction}\noutput: "
 
                 # No BOS for inference either; left-pad with pad_token_id below.
                 tokenize_source = self.tokenize(formatted_prompt, limit_len, add_bos_token=False, add_eos_token=False)
