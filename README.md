@@ -25,6 +25,14 @@ pip uninstall torch
 pip3 install torch --index-url https://download.pytorch.org/whl/cu128
 FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE pip install flash-attn==2.7.2.post1 --no-build-isolation
 
+# If the system has no CUDA toolkit (no nvcc/CUDA_HOME), install it into the conda env
+# so DeepSpeed can JIT-compile ops like cpu_adam:
+conda install -c nvidia cuda-nvcc -y
+conda install -c nvidia libcurand-dev -y
+export CUDA_HOME=$CONDA_PREFIX
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
 export HF_TOKEN=<your_hf_token>
 ```
 
