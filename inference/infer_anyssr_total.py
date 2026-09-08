@@ -273,6 +273,7 @@ def main():
         sources_sequences = []
         ground_truths = []
         moe_ids = []
+        sample_extra_meta = []
 
         if max_ans_len is None:
             max_ans_len = getattr(args, "max_ans_len", 256)
@@ -293,6 +294,10 @@ def main():
 
         progress_bar = tqdm(total=len(test_dataloader), leave=True, disable=False)
         for step, batch in enumerate(test_dataloader):
+            batch_extra_meta = batch.pop('extra_meta', None)
+            if batch_extra_meta is not None:
+                sample_extra_meta.extend(batch_extra_meta)
+
             sources_sequences += batch['sources']
             # print(f"Sources: {batch['sources']}")
             if 'gts' in batch:
@@ -365,7 +370,7 @@ def main():
             description = f"Test step {step}"
             progress_bar.set_description(description, refresh=False)
 
-        return sources_sequences, predicted_sequences, ground_truths, moe_ids
+        return sources_sequences, predicted_sequences, ground_truths, moe_ids, sample_extra_meta
 
     def _task_eval_from_predictions(task, sources_sequences, predicted_sequences, ground_truths):
         if task in ['CodeSearchNet', 'TheVault_Csharp']:
@@ -375,21 +380,31 @@ def main():
         return compute_metrics(predicted_sequences, ground_truths, calc_codebleu=calc_codebleu, language=DATASET_TO_OUTPUT_LANG.get(task, None))
     
     def save_inference_results(evaluation_result: dict, sources_sequences: list, predicted_sequences: list,
-                                ground_truths: list, moe_ids: list, i_task: int, task: str):
+                                ground_truths: list, moe_ids: list, sample_extra_meta: list, i_task: int, task: str):
         # save as a json file
         df = {"eval": evaluation_result}
         os.makedirs(args.inference_output_path, exist_ok=True)
-        if len(moe_ids) != len(predicted_sequences):
-            moe_ids = (moe_ids + [None] * len(predicted_sequences))[:len(predicted_sequences)]
-        prediction_rows = [
-            {
-                "source": source,
-                "ground-truth": gt,
-                "prediction": pred,
-                "moe_id": moe_id,
-            }
-            for source, gt, pred, moe_id in zip(sources_sequences, ground_truths, predicted_sequences, moe_ids)
-        ]
+        if sample_extra_meta and len(sample_extra_meta) == len(sources_sequences):
+            prediction_rows = [
+                {
+                    "index": meta.get("orig_index"),
+                    "instruction": source,
+                    "raw_generation": pred if isinstance(pred, list) else [pred],
+                }
+                for source, pred, meta in zip(sources_sequences, predicted_sequences, sample_extra_meta)
+            ]
+        else:
+            if len(moe_ids) != len(predicted_sequences):
+                moe_ids = (moe_ids + [None] * len(predicted_sequences))[:len(predicted_sequences)]
+            prediction_rows = [
+                {
+                    "source": source,
+                    "ground-truth": gt,
+                    "prediction": pred,
+                    "moe_id": moe_id,
+                }
+                for source, gt, pred, moe_id in zip(sources_sequences, ground_truths, predicted_sequences, moe_ids)
+            ]
         df["predictions"] = prediction_rows
         output_file = os.path.join(args.inference_output_path, f"results-{i_task}-{task}.json")
         with open(output_file, "w", encoding='utf-8') as file:
@@ -507,7 +522,7 @@ def main():
             
             # Inference !
             print(f"***** Start inference of step {i}: task {inference_task}*****")
-            sources_sequences, predicted_sequences, ground_truths, moe_ids = prediction(
+            sources_sequences, predicted_sequences, ground_truths, moe_ids, sample_extra_meta = prediction(
                 model,
                 tokenizer,
                 inference_task,
@@ -536,6 +551,7 @@ def main():
                 predicted_sequences,
                 ground_truths,
                 moe_ids,
+                sample_extra_meta,
                 i,
                 inference_task,
             )

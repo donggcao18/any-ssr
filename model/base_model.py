@@ -71,25 +71,19 @@ class CL_Base_Model:
         """Build per-sample prediction records.
 
         When McEval metadata (from `DataCollator`'s `extra_meta`) is available, rows
-        follow the MMCodeEval-style schema (index/prompt/solution/test/entry_point/
-        signature/docstring/instruction/raw_generation) so saved files can be matched
-        back to the source benchmark for execution-based grading. Otherwise falls back
-        to the legacy source/ground-truth/prediction shape.
+        follow the executable-benchmark schema (index/instruction/raw_generation) —
+        grading joins back to the source benchmark by `index`, so no other McEval
+        metadata needs to be duplicated into the saved predictions. Otherwise falls
+        back to the legacy source/ground-truth/prediction shape.
         """
         if sample_extra_meta and len(sample_extra_meta) == len(sources_sequences):
             return [
                 {
                     "index": meta.get("orig_index"),
-                    "prompt": meta.get("code_prompt"),
-                    "solution": gt,
-                    "test": meta.get("test"),
-                    "entry_point": meta.get("entry_point"),
-                    "signature": meta.get("signature"),
-                    "docstring": None,
                     "instruction": source,
                     "raw_generation": pred if isinstance(pred, list) else [pred],
                 }
-                for source, gt, pred, meta in zip(sources_sequences, ground_truths, predicted_sequences, sample_extra_meta)
+                for source, pred, meta in zip(sources_sequences, predicted_sequences, sample_extra_meta)
             ]
         return [
             {
