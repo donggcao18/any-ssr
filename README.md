@@ -17,15 +17,15 @@ We recommend using the [Anaconda](https://anaconda.org/) to install the developm
 git clone --depth=1 https://github.com/ZHUANGHP/Any-SSR.git
 
 cd Any-SSR
-conda create -n anyssr-olora python=3.11
-conda activate anyssr-olora
+conda create -n anyssr python=3.11
+conda activate anyssr
 pip install -r requirements.txt
 
 pip uninstall torch
 pip3 install torch --index-url https://download.pytorch.org/whl/cu128
 FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE pip install flash-attn==2.7.2.post1 --no-build-isolation
 
-export HF_TOKEN=your_hf_token
+export HF_TOKEN=<your_hf_token>
 ```
 
 
