@@ -1,0 +1,152 @@
+"""Independent CodeTrans SFT -> target SDFT experiments, with before/after evaluation."""
+
+import argparse
+import json
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+from codetask_data import CODETASK_REPO, CODETASK_TASKS
+from run_codetask_sequential import validate_checkpoint
+
+DEFAULT_SOURCE = "/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/anamoe/CodeTrans/0"
+DEFAULT_TARGETS = CODETASK_TASKS[CODETASK_TASKS.index("CodeTrans") + 1:]
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source_checkpoint", default=DEFAULT_SOURCE)
+    parser.add_argument("--base_model", help="Override adapter base only if its recorded path is unavailable on the server")
+    parser.add_argument("--tasks", default=",".join(DEFAULT_TARGETS))
+    parser.add_argument("--output_dir", default="outputs/sdft_pairwise_codetrans")
+    parser.add_argument("--num_train", type=int, default=20000)
+    parser.add_argument("--num_validation", type=int, default=1000)
+    parser.add_argument("--num_test", type=int, default=2000)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--eval_seed", type=int, default=1234)
+    parser.add_argument("--dataset_repo", default=CODETASK_REPO)
+    parser.add_argument("--dataset_revision")
+    parser.add_argument("--prompt_format", choices=["legacy", "chat"], default="legacy")
+    parser.add_argument("--learning_rate", type=float, default=2e-5)
+    parser.add_argument("--num_train_epochs", type=int, default=1)
+    parser.add_argument("--num_prompts_per_batch", type=int, default=32)
+    parser.add_argument("--ref_model_mixup_alpha", type=float, default=0.01)
+    parser.add_argument("--max_prompt_length", type=int, default=2048)
+    parser.add_argument("--max_completion_length", type=int, default=512)
+    parser.add_argument("--eval_batch_size", type=int, default=64)
+    parser.add_argument("--report_to", default="none")
+    parser.add_argument("--dry_run", action="store_true")
+    args = parser.parse_args(argv)
+    args.tasks = [task.strip() for task in args.tasks.split(",")]
+    if len(set(args.tasks)) != len(args.tasks) or any(task not in CODETASK_TASKS or task == "CodeTrans" for task in args.tasks):
+        parser.error("--tasks must be unique CodeTask names other than CodeTrans")
+    for name, limit in (("num_train", 20000), ("num_validation", 1000), ("num_test", 2000)):
+        if not 0 < getattr(args, name) <= limit:
+            parser.error(f"--{name} must be between 1 and {limit}")
+    if min(args.num_train_epochs, args.num_prompts_per_batch, args.max_prompt_length,
+           args.max_completion_length, args.eval_batch_size) <= 0:
+        parser.error("Epochs, batch sizes, and token limits must be positive")
+    if args.learning_rate <= 0 or not 0 <= args.ref_model_mixup_alpha <= 1:
+        parser.error("Learning rate must be positive and EMA alpha must be in [0, 1]")
+    return args
+
+
+def build_plan(args):
+    scripts = Path(__file__).resolve().parent
+    root = Path(args.output_dir).resolve()
+    source = str(root / "source_model")
+    data = str(root / "data")
+
+    def command(script, *options):
+        return [sys.executable, str(scripts / script), *map(str, options)]
+
+    def eval_command(model, tasks, output):
+        return command("eval_codetask.py", "--model_path", model, "--data_dir", data,
+                       "--tasks", ",".join(tasks), "--output_dir", output,
+                       "--prompt_format", args.prompt_format, "--seed", args.eval_seed,
+                       "--max_prompt_length", args.max_prompt_length,
+                       "--max_completion_length", args.max_completion_length,
+                       "--batch_size", args.eval_batch_size)
+
+    export = command("prepare_pairwise.py", "checkpoint", "--source_checkpoint", args.source_checkpoint,
+                     "--output_dir", source)
+    if args.base_model:
+        export += ["--base_model", args.base_model]
+    prepare = command("prepare_pairwise.py", "data", "--tasks", ",".join(args.tasks),
+                      "--output_dir", data, "--num_train", args.num_train,
+                      "--num_validation", args.num_validation, "--num_test", args.num_test,
+                      "--seed", args.seed, "--eval_seed", args.eval_seed,
+                      "--dataset_repo", args.dataset_repo)
+    if args.dataset_revision:
+        prepare += ["--dataset_revision", args.dataset_revision]
+    jobs = [{"name": "export_source", "command": export}, {"name": "freeze_subsets", "command": prepare},
+            {"name": "baseline", "command": eval_command(source, ["CodeTrans"] + args.tasks, root / "baseline")}]
+    for task in args.tasks:
+        pair = root / f"CodeTrans_to_{task}"
+        train = command("main.py", "--dataset_name", "codetask", "--codetask_task", task,
+                        "--model_name", source, "--prepared_train", Path(data) / task / "train",
+                        "--output_dir", pair / "train", "--num_train", args.num_train,
+                        "--seed", args.seed, "--prompt_format", args.prompt_format,
+                        "--learning_rate", args.learning_rate, "--num_train_epochs", args.num_train_epochs,
+                        "--num_prompts_per_batch", args.num_prompts_per_batch,
+                        "--ref_model_mixup_alpha", args.ref_model_mixup_alpha,
+                        "--max_prompt_length", args.max_prompt_length,
+                        "--max_completion_length", args.max_completion_length,
+                        "--num_loss_tokens_to_skip", 0, "--report_to", args.report_to)
+        final = str(pair / "train" / "final")
+        jobs.append({"name": f"train_{task}", "command": train, "checkpoint": final})
+        jobs.append({"name": f"evaluate_{task}", "command": eval_command(final, ["CodeTrans", task], pair / "eval")})
+    return jobs
+
+
+def summarize(root, tasks):
+    root = Path(root)
+    baseline = json.loads((root / "baseline" / "summary.json").read_text(encoding="utf-8"))["results"]
+    result = {}
+    for task in tasks:
+        after = json.loads((root / f"CodeTrans_to_{task}" / "eval" / "summary.json").read_text(encoding="utf-8"))["results"]
+        pair = {}
+        for evaluated in ("CodeTrans", task):
+            pair[evaluated] = {}
+            for split in ("validation", "test"):
+                before_result, after_result = baseline[evaluated][split], after[evaluated][split]
+                before, current = before_result["metrics"], after_result["metrics"]
+                if before_result["sampling"] != after_result["sampling"]:
+                    raise ValueError(f"Baseline and pair evaluated different subsets: {task}/{evaluated}/{split}")
+                pair[evaluated][split] = {
+                    "num_samples": after_result["num_samples"], "before": before, "after": current,
+                    "delta_after_minus_before": {key: round(current[key] - before[key], 4) for key in current},
+                }
+        result[f"CodeTrans_to_{task}"] = pair
+    (root / "pairwise_results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+
+def run(args):
+    jobs = build_plan(args)
+    for job in jobs:
+        print(f"\n[{job['name']}]\n{shlex.join(job['command'])}", flush=True)
+    if args.dry_run:
+        return
+    # This check runs on the server. A local dry run never accesses the source.
+    from prepare_pairwise import checkpoint_kind
+    checkpoint_kind(args.source_checkpoint)
+    root = Path(args.output_dir).resolve()
+    if root.exists() and (not root.is_dir() or any(root.iterdir())):
+        raise ValueError(f"Choose a new or empty output directory: {root}")
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = {"config": vars(args), "objective": "SDFT on B initialized independently from SFT(A)",
+                "validation_policy": "post-training generation; final checkpoint, no model selection",
+                "jobs": jobs}
+    (root / "pairwise_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    for job in jobs:
+        print(f"\nRunning {job['name']}", flush=True)
+        subprocess.run(job["command"], check=True)
+        if "checkpoint" in job:
+            validate_checkpoint(job["checkpoint"])
+    summarize(root, args.tasks)
+    print(f"\nPairwise results: {root / 'pairwise_results.json'}", flush=True)
+
+
+if __name__ == "__main__":
+    run(parse_args())

@@ -185,6 +185,110 @@ Offline contract checks (the real HF sampling test runs when `datasets` is insta
 python -m unittest discover -s tests -v
 ```
 
+### CodeTrans SFT to independent target SDFT pairs
+
+Run this experiment **on the server holding the SFT checkpoint**. The default
+source is:
+
+```text
+/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/anamoe/CodeTrans/0
+```
+
+From the Any-SSR repository root on that server:
+
+```bash
+pip install -r Self-Distillation/requirements-pairwise.txt
+
+# Preview the plan; this also works locally without the server checkpoint.
+bash scripts/train_sdft_codetrans_pairwise.sh --dry_run
+
+# Run all six independent pairs, one GPU, one epoch on B per pair.
+CUDA_VISIBLE_DEVICES=0 bash scripts/train_sdft_codetrans_pairwise.sh
+
+# Optional smaller pilot, with a separate output directory.
+bash scripts/train_sdft_codetrans_pairwise.sh \
+  --tasks BFP --num_train 100 --num_validation 50 --num_test 100 \
+  --output_dir outputs/pairwise_pilot
+```
+
+The six default targets are the tasks after CodeTrans in `training/params.py`:
+`CodeSearchNet, BFP, KodCode, RunBugRun, TheVault_Csharp, CoST`.
+CONCODE precedes CodeTrans and is excluded by default; add it via `--tasks` if
+desired. Every target independently loads the same exported CodeTrans SFT model.
+This is **SFT(A) → SDFT(B)**; it does not retrain A, run an additional SFT(B)
+baseline, or carry weights from one target to another. Student and teacher both
+initialize from SFT(A), with a fresh optimizer/scheduler for every pair. The
+existing full-model SDFT loss and EMA teacher update are retained.
+
+The runner:
+
+1. Detects a PEFT adapter versus a full HF model at the server path. For an
+   adapter, it loads the base recorded in `adapter_config.json`, matches the
+   original tokenizer vocabulary resizing, merges the adapter on CPU, and saves
+   a full HF model plus tokenizer under `source_model/`. A full source model is
+   also exported there. The original checkpoint is read only. If the adapter's
+   recorded base path is unavailable, supply `--base_model` with the **same base
+   model** at an accessible path/Hub ID; do not substitute an Instruct variant.
+2. Resolves one HF dataset revision, samples and saves subsets once, and reuses
+   those exact files across all baseline and pair evaluations. Training uses
+   `--seed 42`; held-out subsets use `--eval_seed 1234` by default.
+3. Evaluates the source SFT(A) checkpoint on validation and test for CodeTrans
+   and all targets, creating a common before-training baseline.
+4. For each target B, trains from `source_model/` on B only, saves the final
+   student, and generates predictions on **both A and B validation/test**.
+5. Writes `pairwise_results.json` containing before/after metrics and their
+   differences for each pair, evaluated task, and split. Negative CodeTrans
+   deltas indicate regression on that metric.
+
+| Split | Default and maximum cap | Use |
+|---|---:|---|
+| Train | 20,000 per target | SDFT updates on B only |
+| Validation | 1,000 per task | Post-training generation diagnostics |
+| Test | 2,000 per task | Pairwise acquisition/retention evaluation |
+
+Counts are `min(cap, available split rows)`; smaller splits do not fail. The CLI
+allows lower caps and rejects larger ones or `-1`. Validation is run on the final
+model after training; it is not evaluated each epoch and does not drive early
+stopping or checkpoint selection. Test examples never enter the distillation
+loader or teacher prompts. Each split saves source row indices and a sampling
+manifest in `data/<task>/<split>/`.
+
+Because the original ANAMOE scripts use the base Qwen model and the collator's
+`input: ...\noutput: ` wrapper, pairwise runs default to `--prompt_format legacy`
+for both training and all evaluations. Use `--prompt_format chat` only if that
+matches how your source checkpoint was trained. Regular eight-task runs retain
+their previous chat format. The teacher receives the reference output; student
+and evaluation prompts do not. Token limits default to 2,048 prompt / 512
+completion tokens and are configurable. Training logs potential truncation;
+evaluation records the number of truncated prompts.
+
+Evaluation reuses `evaluator/compute_metrics.py`: normalized exact match and
+BLEU, plus CodeBLEU for code-output tasks. CodeSearchNet/TheVault_Csharp use the
+repository's summarization metrics (their CodeBLEU field is the existing zero
+placeholder). Predictions are greedy and saved without additional code-fence
+stripping. These are text/code similarity metrics, not execution-based pass@k.
+
+Default output structure:
+
+```text
+outputs/sdft_pairwise_codetrans/
+  pairwise_manifest.json
+  source_model/                       # Full SFT(A) model, used by every pair
+  data/<task>/<split>/                 # Frozen raw subsets + manifests
+  baseline/<task>/<validation|test>/   # Starting SFT(A) predictions + metrics
+  CodeTrans_to_BFP/
+    train/final/                      # SDFT(B) final student
+    eval/CodeTrans/<validation|test>/
+    eval/BFP/<validation|test>/
+  ...
+  pairwise_results.json
+```
+
+Runs stop on failed commands or incomplete checkpoints and require a new/empty
+output root. There is no automatic resume. Evaluation uses a separate vLLM
+process after training releases GPU memory. The default full sequence remains
+available through `train_sdft_codetask_all8.sh`.
+
 ### 5. Forgetting Evaluation
 
 To produce the forgetting metrics in the paper we use the [Language Model Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness) by Eleuther AI.

@@ -1,0 +1,3 @@
+-r requirements.txt
+# Required by the repository's existing CodeBLEU evaluator.
+tree-sitter-language-pack

@@ -19,6 +19,8 @@ def parse_args():
     parser.add_argument("--codetask_task", choices=CODETASK_TASKS)
     parser.add_argument("--dataset_repo", default=CODETASK_REPO)
     parser.add_argument("--dataset_revision", default=None, help="HF dataset revision; pin a commit for reproducibility")
+    parser.add_argument("--prepared_train", help="Saved raw CodeTask train subset produced by the pairwise preparation script")
+    parser.add_argument("--prompt_format", choices=["chat", "legacy"], default="chat")
     parser.add_argument("--num_train", type=int, default=1000, help="CodeTask training subset size; -1 explicitly uses all rows")
     parser.add_argument("--max_prompt_length", type=int, default=1024)
     parser.add_argument("--max_completion_length", type=int, default=1024)
@@ -113,10 +115,27 @@ def main():
     elif args.dataset_name == "science":
         dataset, _ = load_science_dataset(args.seed)
     elif args.dataset_name == "codetask":
-        dataset, manifest = load_codetask_dataset(
-            args.codetask_task, args.num_train, args.seed,
-            args.dataset_repo, args.dataset_revision,
-        )
+        if args.prepared_train:
+            from datasets import load_from_disk
+            from functools import partial
+            from codetask_data import format_codetask_example
+            prepared = Path(args.prepared_train)
+            manifest = json.loads((prepared / "sampling_manifest.json").read_text(encoding="utf-8"))
+            if manifest["task"] != args.codetask_task or manifest["split"] != "train":
+                raise ValueError("Prepared subset task/split does not match the requested training task")
+            raw = load_from_disk(str(prepared))
+            if len(raw) != manifest["selected_rows"] or (args.num_train != -1 and len(raw) > args.num_train):
+                raise ValueError("Prepared subset count does not match its manifest or exceeds --num_train")
+            dataset = raw.map(partial(format_codetask_example, prompt_format=args.prompt_format),
+                              remove_columns=raw.column_names)
+            manifest["prompt_format"] = args.prompt_format
+            manifest["teacher_template"] = "codetask_output_only_v1"
+        else:
+            kwargs = {"prompt_format": args.prompt_format} if args.prompt_format != "chat" else {}
+            dataset, manifest = load_codetask_dataset(
+                args.codetask_task, args.num_train, args.seed,
+                args.dataset_repo, args.dataset_revision, **kwargs,
+            )
     else:
         raise ValueError(f"Invalid dataset name: {args.dataset_name}")
 
