@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from codetask_data import CODETASK_REPO, CODETASK_TASKS, load_codetask_split
@@ -44,7 +45,7 @@ def export_checkpoint(source, output, base_model=None):
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, local_files_only=True)
     # CPU export avoids competing with the subsequent vLLM process for GPU memory.
     model = AutoModelForCausalLM.from_pretrained(
-        base, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, local_files_only=True)
+        base, dtype=torch.bfloat16, low_cpu_mem_usage=True, local_files_only=True)
     if kind == "adapter":
         from peft import PeftModel
         # Match utils/model/model_utils.py, which resizes before attaching LoRA.
@@ -59,9 +60,15 @@ def export_checkpoint(source, output, base_model=None):
 
 
 def prepare_data(args):
-    from huggingface_hub import HfApi
-    # Resolve a single immutable revision for all pairs and all splits.
-    revision = HfApi().dataset_info(args.dataset_repo, revision=args.dataset_revision).sha
+    offline = any(os.environ.get(name, "").upper() in ("1", "TRUE", "YES", "ON")
+                  for name in ("HF_HUB_OFFLINE", "HF_DATASETS_OFFLINE"))
+    if offline:
+        # Preserve the original request so datasets can reuse its Arrow cache.
+        revision = args.dataset_revision
+        print("Offline mode: loading CodeTask from cache; skipping Hub revision lookup.", flush=True)
+    else:
+        from huggingface_hub import HfApi
+        revision = HfApi().dataset_info(args.dataset_repo, revision=args.dataset_revision).sha
     root = Path(args.output_dir)
     root.mkdir(parents=True, exist_ok=True)
     tasks = [args.source_task] + args.tasks.split(",")
@@ -79,7 +86,9 @@ def prepare_data(args):
             (path / "sampling_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             manifests[f"{task}/{split}"] = manifest
             print(f"{task}/{split}: {len(selected)} / {manifest['source_rows']} rows", flush=True)
-    (root / "manifest.json").write_text(json.dumps({"revision": revision, "subsets": manifests}, indent=2), encoding="utf-8")
+    (root / "manifest.json").write_text(json.dumps({
+        "revision": revision, "revision_resolved_online": not offline, "subsets": manifests,
+    }, indent=2), encoding="utf-8")
 
 
 def main():

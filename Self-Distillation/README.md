@@ -304,8 +304,23 @@ for a Hub cache this is `models--Qwen--Qwen2.5-Coder-1.5B/snapshots/<commit>`,
 not the cache root. Keep the corresponding `blobs` directory when transferring
 a cache with symlinks. Missing files cause an error, never a model download.
 The student, teacher, and evaluation tokenizer also use `local_files_only=True`.
-This does not make dataset preparation offline: it still resolves the dataset
-revision through the Hub and loads its parquet files.
+With `HF_HUB_OFFLINE=1` or `HF_DATASETS_OFFLINE=1`, dataset preparation skips the
+Hub revision lookup and uses the existing `datasets` cache with the original
+repository, task/split file pattern, and requested revision. No new commit SHA
+is claimed in offline manifests; saved fingerprints and row indices identify
+the sampled data. All requested task/split configurations must already be cached.
+`HF_DATASETS_CACHE` controls the prepared Arrow cache (normally
+`~/.cache/huggingface/datasets`); this is separate from `HF_HUB_CACHE`.
+
+DeepSpeed is optional and is excluded from the default dependencies. The
+single-GPU pairwise workflow does not enable it. If an earlier installation
+included DeepSpeed and export fails with `MissingCUDAException: CUDA_HOME does
+not exist`, remove it from the SDFT environment with `python -m pip uninstall -y
+deepspeed` (no internet needed). Accelerate imports an installed DeepSpeed during
+model saving even when the model is not using it. Changing the requirements file
+does not uninstall an existing package. Retry with a fresh output directory.
+For an actual DeepSpeed/ZeRO run, install `deepspeed==0.18.4` separately in an
+environment with the appropriate CUDA toolkit.
 
 ### 5. Forgetting Evaluation
 

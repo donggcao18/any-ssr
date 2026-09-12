@@ -161,6 +161,25 @@ class PairwiseTests(unittest.TestCase):
             self.assertEqual(seed, args.seed if split == "train" else args.eval_seed)
             self.assertEqual(revision, "resolved-commit")
 
+    def test_offline_data_preparation_never_queries_hub(self):
+        args = self.args("--tasks", "BFP")
+        args.source_task = "CodeTrans"
+        args.tasks = "BFP"
+        api = Mock(side_effect=AssertionError("Offline preparation must not query Hub"))
+        ds = MagicMock()
+        ds.__len__.return_value = 3
+        ds.save_to_disk.side_effect = lambda path: Path(path).mkdir(parents=True)
+        with patch.dict(preparation.os.environ, {"HF_HUB_OFFLINE": "1"}), \
+             patch.dict(sys.modules, {"huggingface_hub": types.SimpleNamespace(HfApi=api)}), \
+             patch.object(preparation, "load_codetask_split", return_value=(ds, {"source_rows": 3})) as load, \
+             contextlib.redirect_stdout(io.StringIO()):
+            preparation.prepare_data(args)
+        api.assert_not_called()
+        self.assertEqual(load.call_count, 5)
+        self.assertTrue(all(call.args[-1] is None for call in load.call_args_list))
+        manifest = json.loads((Path(args.output_dir) / "manifest.json").read_text())
+        self.assertFalse(manifest["revision_resolved_online"])
+
     def test_failed_training_stops_before_pair_evaluation(self):
         args = self.args("--tasks", "BFP")
         failure = subprocess.CalledProcessError(1, "train")

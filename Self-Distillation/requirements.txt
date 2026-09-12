@@ -14,4 +14,5 @@ matplotlib==3.10.7
 flashinfer-python==0.5.3
 wandb==0.22.2
 pandas==2.3.3
-deepspeed==0.18.4
+# Optional for DeepSpeed/ZeRO runs only: deepspeed==0.18.4
+# The single-GPU pairwise workflow does not require DeepSpeed.

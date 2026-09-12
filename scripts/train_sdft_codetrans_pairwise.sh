@@ -8,7 +8,9 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 # Change this default if the downloaded cache is stored elsewhere.
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/.cache}"
 export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_CACHE=/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/.cache
 SOURCE_ARGS=()
 if [[ -n "${SOURCE_CHECKPOINT:-}" ]]; then
     SOURCE_ARGS=(--source_checkpoint "$SOURCE_CHECKPOINT")

@@ -198,8 +198,8 @@ def main():
     if args.dataset_name == "codetask" and len(dataset) % config.generation_batch_size:
         raise ValueError("CodeTask subset size must be divisible by the global generation batch. "
                          "Use the single-GPU sequential script or adjust the subset/batch size.")
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16, local_files_only=True)
-    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16, local_files_only=True)
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=True)
+    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=True)
     trainer = DistilTrainer(
         model=model,
         ref_model=teacher_model,
