@@ -289,6 +289,24 @@ output root. There is no automatic resume. Evaluation uses a separate vLLM
 process after training releases GPU memory. The default full sequence remains
 available through `train_sdft_codetask_all8.sh`.
 
+Pairwise checkpoint export loads models locally only. A Hub model ID in the
+adapter configuration is resolved from the existing Hugging Face cache without
+network access. Alternatively, pass the exact downloaded model directory:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash scripts/train_sdft_codetrans_pairwise.sh \
+  --base_model /absolute/path/to/Qwen2.5-Coder-1.5B \
+  --output_dir outputs/sdft_pairwise_local_model
+```
+
+The directory must contain `config.json`, model weights, and tokenizer files;
+for a Hub cache this is `models--Qwen--Qwen2.5-Coder-1.5B/snapshots/<commit>`,
+not the cache root. Keep the corresponding `blobs` directory when transferring
+a cache with symlinks. Missing files cause an error, never a model download.
+The student, teacher, and evaluation tokenizer also use `local_files_only=True`.
+This does not make dataset preparation offline: it still resolves the dataset
+revision through the Hub and loads its parquet files.
+
 ### 5. Forgetting Evaluation
 
 To produce the forgetting metrics in the paper we use the [Language Model Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness) by Eleuther AI.

@@ -139,7 +139,7 @@ def main():
     else:
         raise ValueError(f"Invalid dataset name: {args.dataset_name}")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, local_files_only=True)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     if manifest is not None:
@@ -198,8 +198,8 @@ def main():
     if args.dataset_name == "codetask" and len(dataset) % config.generation_batch_size:
         raise ValueError("CodeTask subset size must be divisible by the global generation batch. "
                          "Use the single-GPU sequential script or adjust the subset/batch size.")
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16)
-    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16, local_files_only=True)
+    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16, local_files_only=True)
     trainer = DistilTrainer(
         model=model,
         ref_model=teacher_model,

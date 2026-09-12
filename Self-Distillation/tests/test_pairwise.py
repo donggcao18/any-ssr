@@ -17,6 +17,7 @@ import eval_codetask as evaluation
 import prepare_pairwise as preparation
 import run_codetask_pairwise as pairwise
 import main as training
+from local_model import resolve_local_model
 from test_codetask import MemoryDataset, fixture_rows
 
 
@@ -104,12 +105,37 @@ class PairwiseTests(unittest.TestCase):
         modules = {"torch": types.SimpleNamespace(bfloat16="bf16"),
                    "transformers": types.SimpleNamespace(AutoTokenizer=auto_tokenizer, AutoModelForCausalLM=auto_model),
                    "peft": types.SimpleNamespace(PeftModel=peft_model)}
-        with patch.dict(sys.modules, modules):
+        with patch.dict(sys.modules, modules), \
+             patch.object(preparation, "resolve_local_model", return_value="/cached/base") as resolve:
             preparation.export_checkpoint(str(source), self.root / "export")
-        self.assertEqual(auto_model.from_pretrained.call_args.args[0], "recorded/base")
+        resolve.assert_called_once_with("recorded/base")
+        self.assertEqual(auto_model.from_pretrained.call_args.args[0], "/cached/base")
+        for loader in (auto_model, auto_tokenizer, peft_model):
+            self.assertTrue(loader.from_pretrained.call_args.kwargs["local_files_only"])
         auto_model.from_pretrained.return_value.resize_token_embeddings.assert_called_once_with(24)
         peft_model.from_pretrained.return_value.merge_and_unload.assert_called_once_with(safe_merge=True)
         merged.save_pretrained.assert_called_once()
+
+    def test_local_model_directory_needs_no_hub_call(self):
+        model = self.root / "local_model"
+        model.mkdir()
+        (model / "config.json").write_text("{}")
+        download = Mock(side_effect=AssertionError("Hub must not be called"))
+        with patch.dict(sys.modules, {"huggingface_hub": types.SimpleNamespace(snapshot_download=download)}):
+            self.assertEqual(resolve_local_model(str(model)), str(model.resolve()))
+        download.assert_not_called()
+
+    def test_model_cache_lookup_is_local_only_and_missing_cache_is_actionable(self):
+        model = self.root / "snapshot"
+        model.mkdir()
+        (model / "config.json").write_text("{}")
+        download = Mock(return_value=str(model))
+        with patch.dict(sys.modules, {"huggingface_hub": types.SimpleNamespace(snapshot_download=download)}):
+            self.assertEqual(resolve_local_model("Qwen/Qwen2.5-Coder-1.5B"), str(model))
+            download.assert_called_once_with(repo_id="Qwen/Qwen2.5-Coder-1.5B", local_files_only=True)
+            download.side_effect = OSError("cache miss")
+            with self.assertRaisesRegex(FileNotFoundError, "--base_model"):
+                resolve_local_model("Qwen/Qwen2.5-Coder-1.5B")
 
     def test_frozen_preparation_separates_training_and_eval_seeds(self):
         calls = []

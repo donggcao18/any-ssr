@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from codetask_data import CODETASK_REPO, CODETASK_TASKS, load_codetask_split
+from local_model import resolve_local_model
 
 
 def checkpoint_kind(path):
@@ -36,15 +37,19 @@ def export_checkpoint(source, output, base_model=None):
         base = base_model or adapter_config.get("base_model_name_or_path")
         if not base:
             raise ValueError("Adapter config has no base model; supply --base_model")
+    # Resolve Hub IDs from the existing cache only; give all downstream loaders
+    # a real directory so adapter export never attempts to download the base.
+    base = resolve_local_model(base)
     tokenizer_source = source if (Path(source) / "tokenizer_config.json").is_file() else base
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, local_files_only=True)
     # CPU export avoids competing with the subsequent vLLM process for GPU memory.
-    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        base, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, local_files_only=True)
     if kind == "adapter":
         from peft import PeftModel
         # Match utils/model/model_utils.py, which resizes before attaching LoRA.
         model.resize_token_embeddings(8 * ((len(tokenizer) + 7) // 8))
-        model = PeftModel.from_pretrained(model, source).merge_and_unload(safe_merge=True)
+        model = PeftModel.from_pretrained(model, source, local_files_only=True).merge_and_unload(safe_merge=True)
     model.save_pretrained(str(output), safe_serialization=True)
     tokenizer.save_pretrained(str(output))
     (output / "source_manifest.json").write_text(json.dumps({

@@ -26,7 +26,7 @@ def evaluate(args):
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
     llm = LLM(model=args.model_path, dtype="bfloat16", seed=args.seed,
               max_model_len=args.max_prompt_length + args.max_completion_length,
               gpu_memory_utilization=args.gpu_memory_utilization)
