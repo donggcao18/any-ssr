@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -10,7 +11,7 @@ import sys
 from codetask_data import CODETASK_REPO, CODETASK_TASKS
 from run_codetask_sequential import validate_checkpoint
 
-DEFAULT_SOURCE = "/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/anamoe/CodeTrans/0"
+DEFAULT_SOURCE = "/research/cbim/vast/qt60/any-ssr/output/CodeTrans/0"
 DEFAULT_TARGETS = CODETASK_TASKS[CODETASK_TASKS.index("CodeTrans") + 1:]
 
 
@@ -30,7 +31,12 @@ def parse_args(argv=None):
     parser.add_argument("--prompt_format", choices=["legacy", "chat"], default="legacy")
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--num_train_epochs", type=int, default=1)
-    parser.add_argument("--num_prompts_per_batch", type=int, default=32)
+    parser.add_argument("--num_prompts_per_batch", "--gradient_accumulation_steps", type=int, default=32)
+    parser.add_argument("--num_gpus", type=int, default=1)
+    parser.add_argument("--per_device_train_batch_size", type=int, default=1)
+    parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3)
+    parser.add_argument("--warmup_ratio", type=float, default=0.1)
+    parser.add_argument("--save_steps", type=int, default=100)
     parser.add_argument("--ref_model_mixup_alpha", type=float, default=0.01)
     parser.add_argument("--max_prompt_length", type=int, default=2048)
     parser.add_argument("--max_completion_length", type=int, default=512)
@@ -45,10 +51,13 @@ def parse_args(argv=None):
         if not 0 < getattr(args, name) <= limit:
             parser.error(f"--{name} must be between 1 and {limit}")
     if min(args.num_train_epochs, args.num_prompts_per_batch, args.max_prompt_length,
-           args.max_completion_length, args.eval_batch_size) <= 0:
+           args.max_completion_length, args.eval_batch_size, args.num_gpus,
+           args.per_device_train_batch_size, args.save_steps) <= 0:
         parser.error("Epochs, batch sizes, and token limits must be positive")
     if args.learning_rate <= 0 or not 0 <= args.ref_model_mixup_alpha <= 1:
         parser.error("Learning rate must be positive and EMA alpha must be in [0, 1]")
+    if not 0 < args.vllm_gpu_memory_utilization < 1 or not 0 <= args.warmup_ratio <= 1:
+        parser.error("vLLM memory fraction must be in (0, 1); warmup ratio must be in [0, 1]")
     return args
 
 
@@ -94,6 +103,12 @@ def build_plan(args):
                         "--max_prompt_length", args.max_prompt_length,
                         "--max_completion_length", args.max_completion_length,
                         "--num_loss_tokens_to_skip", 0, "--report_to", args.report_to)
+        train += ["--per_device_train_batch_size", str(args.per_device_train_batch_size),
+                  "--vllm_gpu_memory_utilization", str(args.vllm_gpu_memory_utilization),
+                  "--warmup_ratio", str(args.warmup_ratio), "--save_steps", str(args.save_steps)]
+        if args.num_gpus > 1:
+            train = [sys.executable, "-m", "torch.distributed.run", "--standalone",
+                     "--nnodes=1", f"--nproc_per_node={args.num_gpus}", *train[1:]]
         final = str(pair / "train" / "final")
         jobs.append({"name": f"train_{task}", "command": train, "checkpoint": final})
         jobs.append({"name": f"evaluate_{task}", "command": eval_command(final, ["CodeTrans", task], pair / "eval")})
@@ -128,6 +143,12 @@ def run(args):
         print(f"\n[{job['name']}]\n{shlex.join(job['command'])}", flush=True)
     if args.dry_run:
         return
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        raise ValueError("Run the pairwise script with plain bash/python; it launches distributed training itself")
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    devices = visible.split(",") if visible else [str(i) for i in range(args.num_gpus)]
+    if len(devices) < args.num_gpus:
+        raise ValueError("CUDA_VISIBLE_DEVICES contains fewer GPUs than --num_gpus")
     # This check runs on the server. A local dry run never accesses the source.
     from prepare_pairwise import checkpoint_kind
     checkpoint_kind(args.source_checkpoint)
@@ -141,7 +162,10 @@ def run(args):
     (root / "pairwise_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     for job in jobs:
         print(f"\nRunning {job['name']}", flush=True)
-        subprocess.run(job["command"], check=True)
+        env = os.environ.copy()
+        count = args.num_gpus if job["name"].startswith("train_") else 1
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(devices[:count])
+        subprocess.run(job["command"], check=True, env=env)
         if "checkpoint" in job:
             validate_checkpoint(job["checkpoint"])
     summarize(root, args.tasks)

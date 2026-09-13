@@ -51,7 +51,7 @@ class MemoryDataset:
     def select(self, indices):
         return MemoryDataset([self.rows[index] for index in indices])
 
-    def map(self, function, remove_columns):
+    def map(self, function, remove_columns, **kwargs):
         assert set(remove_columns) == set(self.column_names)
         return MemoryDataset([function(row) for row in self.rows])
 

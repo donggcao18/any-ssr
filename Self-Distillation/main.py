@@ -1,6 +1,7 @@
 from string import Template
 import argparse
 import json
+import os
 from math import gcd
 from pathlib import Path
 
@@ -10,7 +11,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Distil Trainer")
     parser.add_argument("--learning_rate", type=float, default=2e-5, help="Learning rate")
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Number of training epochs")
-    parser.add_argument("--num_prompts_per_batch", type=int, default=32, help="Number of prompts per batch")
+    parser.add_argument("--num_prompts_per_batch", "--gradient_accumulation_steps", type=int, default=32,
+                        help="Gradient accumulation steps per GPU (legacy alias retained)")
+    parser.add_argument("--per_device_train_batch_size", type=int, default=1)
+    parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3)
+    parser.add_argument("--warmup_ratio", type=float, default=0.1)
+    parser.add_argument("--save_steps", type=int, default=100)
     parser.add_argument("--ref_model_mixup_alpha", type=float, default=0.01, help="Reference model mixup alpha")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory")
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-7B-Instruct", help="Model name")
@@ -36,13 +42,25 @@ def parse_args():
         parser.error("--prepare_only requires --dataset_name codetask")
     if args.num_train != -1 and args.num_train <= 0:
         parser.error("--num_train must be positive or -1")
-    if min(args.max_prompt_length, args.max_completion_length, args.num_prompts_per_batch, args.num_train_epochs) <= 0:
+    if min(args.max_prompt_length, args.max_completion_length, args.num_prompts_per_batch,
+           args.per_device_train_batch_size, args.save_steps, args.num_train_epochs) <= 0:
         parser.error("Token limits, batch size, and epochs must be positive")
     if args.num_loss_tokens_to_skip is None:
         args.num_loss_tokens_to_skip = 0 if args.dataset_name == "codetask" else 3
+    if not 0 < args.vllm_gpu_memory_utilization < 1 or not 0 <= args.warmup_ratio <= 1:
+        parser.error("vLLM memory fraction must be in (0, 1); warmup ratio must be in [0, 1]")
     if not 0 <= args.num_loss_tokens_to_skip < args.max_completion_length:
         parser.error("--num_loss_tokens_to_skip must be nonnegative and less than --max_completion_length")
     return args
+
+
+def training_batch_plan(rows, world_size, per_device_batch, accumulation):
+    """Use complete global microbatches so distributed generation drops no hidden rows."""
+    microbatch = world_size * per_device_batch
+    usable = rows - rows % microbatch
+    if usable == 0:
+        raise ValueError(f"Need at least {microbatch} train samples for this GPU/batch configuration")
+    return usable, gcd(usable // microbatch, accumulation)
 
 def load_tooluse_dataset(seed=42):
     """Load and prepare tooluse dataset with formatted prompts."""
@@ -107,6 +125,11 @@ Now answer with a response of your own, including the thinking process.
 
 def main():
     args = parse_args()
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    if world_size > 1:
+        import torch
+        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     from transformers import AutoTokenizer
 
     manifest = None
@@ -127,7 +150,7 @@ def main():
             if len(raw) != manifest["selected_rows"] or (args.num_train != -1 and len(raw) > args.num_train):
                 raise ValueError("Prepared subset count does not match its manifest or exceeds --num_train")
             dataset = raw.map(partial(format_codetask_example, prompt_format=args.prompt_format),
-                              remove_columns=raw.column_names)
+                              remove_columns=raw.column_names, load_from_cache_file=False, keep_in_memory=True)
             manifest["prompt_format"] = args.prompt_format
             manifest["teacher_template"] = "codetask_output_only_v1"
         else:
@@ -139,10 +162,21 @@ def main():
     else:
         raise ValueError(f"Invalid dataset name: {args.dataset_name}")
 
+    generation_steps = None
+    if args.dataset_name == "codetask":
+        usable, generation_steps = training_batch_plan(
+            len(dataset), world_size, args.per_device_train_batch_size, args.num_prompts_per_batch)
+        manifest["training_rows"] = usable
+        manifest["dropped_for_global_microbatch"] = len(dataset) - usable
+        manifest["world_size"] = world_size
+        if usable != len(dataset):
+            dataset = dataset.select(range(usable))
+            if rank == 0:
+                print(f"Using first {usable} sampled rows to fill global microbatches", flush=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, local_files_only=True)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if manifest is not None:
+    if manifest is not None and rank == 0:
         manifest["prompt_lengths"] = prompt_length_stats(dataset, tokenizer, args.max_prompt_length)
         manifest["max_prompt_length"] = args.max_prompt_length
         (output_dir / "data_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -151,7 +185,8 @@ def main():
         if any(stats["rows_over_limit"] for stats in manifest["prompt_lengths"].values()):
             print("WARNING: prompts exceed max_prompt_length and will be left-truncated. "
                   "Increase --max_prompt_length to preserve the task input and teacher reference.", flush=True)
-    (output_dir / "run_config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
+    if rank == 0:
+        (output_dir / "run_config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
     if args.prepare_only:
         return
 
@@ -165,26 +200,26 @@ def main():
         use_vllm = True,
         vllm_mode="colocate",
         vllm_tensor_parallel_size=1, 
-        vllm_gpu_memory_utilization=0.3,
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
         vllm_enable_sleep_mode=True, 
         learning_rate = args.learning_rate,
-        warmup_ratio = 0.1,
+        warmup_ratio = args.warmup_ratio,
         lr_scheduler_type = "cosine",
         logging_steps = 1,
         bf16 = True,
         fp16 = False,
-        per_device_train_batch_size = 1,
+        per_device_train_batch_size = args.per_device_train_batch_size,
+        ddp_find_unused_parameters = False,
         gradient_accumulation_steps = args.num_prompts_per_batch,
         # RepeatSampler groups complete generation batches. Choose a divisor
         # of the sampled size so small/non-multiple subsets retain every row.
-        steps_per_generation = (gcd(len(dataset), args.num_prompts_per_batch)
-                                if args.dataset_name == "codetask" else None),
+        steps_per_generation = generation_steps,
         max_prompt_length = args.max_prompt_length,
         max_completion_length = args.max_completion_length,
         num_train_epochs = args.num_train_epochs,
         num_iterations = 1,
         num_generations = 1,
-        save_steps = 100,
+        save_steps = args.save_steps,
         max_grad_norm = 1,
         report_to = args.report_to,
         output_dir = args.output_dir,
@@ -197,7 +232,7 @@ def main():
     )
     if args.dataset_name == "codetask" and len(dataset) % config.generation_batch_size:
         raise ValueError("CodeTask subset size must be divisible by the global generation batch. "
-                         "Use the single-GPU sequential script or adjust the subset/batch size.")
+                         "Adjust the subset/batch size.")
     model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=True)
     teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=True)
     trainer = DistilTrainer(

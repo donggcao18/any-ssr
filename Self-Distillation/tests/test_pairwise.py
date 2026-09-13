@@ -55,6 +55,29 @@ class PairwiseTests(unittest.TestCase):
         launch.assert_not_called()
         self.assertFalse((self.root / "run").exists())
 
+    def test_distributed_launch_only_wraps_training_and_forwards_batch(self):
+        args = self.args("--num_gpus", "2", "--per_device_train_batch_size", "3",
+                         "--gradient_accumulation_steps", "4")
+        for job in pairwise.build_plan(args):
+            cmd = job["command"]
+            if job["name"].startswith("train_"):
+                self.assertIn("torch.distributed.run", cmd)
+                self.assertIn("--nproc_per_node=2", cmd)
+                self.assertEqual(cmd[cmd.index("--per_device_train_batch_size") + 1], "3")
+                self.assertEqual(cmd[cmd.index("--num_prompts_per_batch") + 1], "4")
+            else:
+                self.assertNotIn("torch.distributed.run", cmd)
+
+    def test_distributed_batch_plan_retains_full_microbatches(self):
+        for rows, world, batch, accum in ((20000, 2, 1, 16), (19, 2, 3, 4), (7, 1, 1, 32)):
+            usable, steps = training.training_batch_plan(rows, world, batch, accum)
+            self.assertLessEqual(usable, rows)
+            self.assertLess(rows - usable, world * batch)
+            self.assertEqual(usable % (world * batch * steps), 0)
+            self.assertEqual(accum % steps, 0)
+        with self.assertRaises(ValueError):
+            training.training_batch_plan(3, 2, 2, 16)
+
     def test_caps_and_source_task_are_enforced(self):
         for extra in (("--num_train", "20001"), ("--num_validation", "1001"), ("--num_test", "2001"),
                       ("--num_train", "-1"), ("--tasks", "CodeTrans"), ("--tasks", "BFP,BFP")):

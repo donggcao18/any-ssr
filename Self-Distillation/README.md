@@ -322,6 +322,41 @@ does not uninstall an existing package. Retry with a fresh output directory.
 For an actual DeepSpeed/ZeRO run, install `deepspeed==0.18.4` separately in an
 environment with the appropriate CUDA toolkit.
 
+### Multi-GPU pairwise training
+
+Run `bash scripts/train_sdft_codetrans_pairwise.sh` from the repository root.
+Edit the settings at the top of that script; defaults use two GPUs, batch size
+one per GPU, and 16 accumulation steps (effective batch 32). Set `NUM_GPUS=1`
+for one GPU. An existing `CUDA_VISIBLE_DEVICES` is respected and must expose
+at least `NUM_GPUS` devices. Do not launch the pairwise runner with torchrun;
+it launches each training job using `python -m torch.distributed.run` itself.
+
+Tunable script settings include `PER_DEVICE_BATCH_SIZE`,
+`GRADIENT_ACCUMULATION_STEPS`, `LEARNING_RATE`, `EPOCHS`, `WARMUP_RATIO`,
+`EMA_ALPHA`, `MAX_PROMPT_LENGTH`, `MAX_COMPLETION_LENGTH`,
+`VLLM_MEMORY_FRACTION`, `EVAL_BATCH_SIZE`, `SAVE_STEPS`, and the existing
+sample caps and seeds. CLI options appended to the script override its defaults.
+Effective batch is GPU count times per-device batch times accumulation steps;
+the last optimizer step in an epoch may be smaller.
+
+Training uses DDP on one machine with a full student, teacher, and colocated
+vLLM engine on each GPU (vLLM tensor parallelism is one). This distributes
+training work but does not shard model or optimizer memory. Export, preparation,
+and evaluation run once; evaluation uses the first selected GPU. DeepSpeed is
+not required. Rank zero writes run manifests and the final completion marker.
+
+To avoid implicit sampler dropping or padding, training uses the largest prefix
+of the frozen train subset divisible by GPU count times per-device batch.
+It drops fewer than one global microbatch and records `training_rows` and
+`dropped_for_global_microbatch` in the training manifest. Validation/test subsets
+are unchanged. Generation groups divide both the retained subset and the
+accumulation interval.
+
+An initial server smoke run can use `bash scripts/train_sdft_codetrans_pairwise.sh
+--tasks BFP --num_train 64 --num_validation 8 --num_test 8`.
+Local checks cover launch construction and batch arithmetic; actual distributed
+CUDA/vLLM execution requires testing on the server.
+
 ### 5. Forgetting Evaluation
 
 To produce the forgetting metrics in the paper we use the [Language Model Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness) by Eleuther AI.
