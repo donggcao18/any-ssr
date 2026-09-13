@@ -4,34 +4,23 @@ SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
 if [[ "$SCRIPT_DIR" == "${BASH_SOURCE[0]}" ]]; then SCRIPT_DIR=.; fi
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 # Tune these defaults here; the command stays the same for one or more GPUs.
-NUM_GPUS="${NUM_GPUS:-2}"
-if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-    GPU_LIST=0
-    for ((gpu=1; gpu<NUM_GPUS; gpu++)); do GPU_LIST+=",$gpu"; done
-    export CUDA_VISIBLE_DEVICES="$GPU_LIST"
-fi
-PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
-GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-16}"
+NUM_GPUS="${NUM_GPUS:-4}"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
+
+PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-8}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-1}"
 # Effective batch = NUM_GPUS * PER_DEVICE_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS.
 LEARNING_RATE="${LEARNING_RATE:-2e-5}"
 EPOCHS="${EPOCHS:-1}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.1}"
 EMA_ALPHA="${EMA_ALPHA:-0.01}"
-MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-2048}"
-MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-512}"
+MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-512}"
+MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-256}"
 VLLM_MEMORY_FRACTION="${VLLM_MEMORY_FRACTION:-0.3}"
-EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-64}"
+EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-8}"
 SAVE_STEPS="${SAVE_STEPS:-100}"
-# Server settings. Both caches were configured in the repository's .cache.
-# HF_HUB_CACHE must contain models--Qwen--Qwen2.5-Coder-1.5B;
-# HF_DATASETS_CACHE must contain the prepared CodeTask dataset cache.
-CACHE_ROOT="/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/.cache"
-export HF_HUB_CACHE="${HF_HUB_CACHE:-$CACHE_ROOT}"
-export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$CACHE_ROOT}"
-export HF_HUB_OFFLINE=1
-export HF_DATASETS_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
-SOURCE_CHECKPOINT="${SOURCE_CHECKPOINT:-/home/users/congthanh_le/scratch/east/CodeGR/Dense/any-ssr/anamoe/CodeTrans/0}"
+
+SOURCE_CHECKPOINT="${SOURCE_CHECKPOINT:-/research/cbim/vast/qt60/any-ssr/output/CodeTrans/0}"
 TASKS="${TASKS:-CodeSearchNet,BFP,KodCode,RunBugRun,TheVault_Csharp,CoST}"
 # A fresh directory lets the same short command work after a failed run.
 printf -v RUN_TIMESTAMP '%(%Y%m%d_%H%M%S)T' -1
