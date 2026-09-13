@@ -7,6 +7,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import time
 
 from codetask_data import CODETASK_REPO, CODETASK_TASKS
 from run_codetask_sequential import validate_checkpoint
@@ -43,6 +44,11 @@ def parse_args(argv=None):
     parser.add_argument("--eval_batch_size", type=int, default=64)
     parser.add_argument("--report_to", default="none")
     parser.add_argument("--dry_run", action="store_true")
+    parser.add_argument("--resume", help="Existing run directory with completed baseline; reuse its saved configuration")
+    parser.add_argument("--resume_runtime_settings", action="store_true",
+                        help="Use current microbatch/accumulation/vLLM memory settings when resuming")
+    parser.add_argument("--restart_incomplete", action="store_true",
+                        help="Archive unfinished training and restart that task from the source model")
     args = parser.parse_args(argv)
     args.tasks = [task.strip() for task in args.tasks.split(",")]
     if len(set(args.tasks)) != len(args.tasks) or any(task not in CODETASK_TASKS or task == "CodeTrans" for task in args.tasks):
@@ -137,8 +143,70 @@ def summarize(root, tasks):
     (root / "pairwise_results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
+def resume_jobs(args):
+    """Resume at stage boundaries; never overwrite unfinished training."""
+    root = Path(args.resume).resolve()
+    saved = json.loads((root / "pairwise_manifest.json").read_text(encoding="utf-8"))["config"]
+    runtime = {key: getattr(args, key) for key in (
+        "per_device_train_batch_size", "num_prompts_per_batch", "vllm_gpu_memory_utilization")}
+    for key, value in saved.items():
+        if key not in ("resume", "dry_run", "output_dir", "resume_runtime_settings", "restart_incomplete") and hasattr(args, key):
+            setattr(args, key, value)
+    if args.resume_runtime_settings:
+        for key, value in runtime.items():
+            setattr(args, key, value)
+    args.output_dir = str(root)
+    from prepare_pairwise import checkpoint_kind
+    if checkpoint_kind(root / "source_model") != "full":
+        raise ValueError("Resume requires the exported full source model")
+    if not (root / "source_model" / "tokenizer_config.json").is_file():
+        raise ValueError("Exported tokenizer is missing")
+    baseline = json.loads((root / "baseline" / "summary.json").read_text(encoding="utf-8"))
+    for task in ["CodeTrans", *args.tasks]:
+        splits = ("validation", "test") if task == "CodeTrans" else ("train", "validation", "test")
+        for split in splits:
+            path = root / "data" / task / split
+            sampling = json.loads((path / "sampling_manifest.json").read_text(encoding="utf-8"))
+            if not (path / "state.json").is_file():
+                raise ValueError(f"Saved dataset is missing: {path}")
+            if split != "train":
+                result = baseline["results"][task][split]
+                if result["sampling"] != sampling or result["num_samples"] != sampling["selected_rows"]:
+                    raise ValueError(f"Baseline/subset mismatch: {task}/{split}")
+    jobs = []
+    for job in build_plan(args)[3:]:
+        if "checkpoint" in job:
+            final = Path(job["checkpoint"])
+            if (final / "training_complete.json").is_file():
+                validate_checkpoint(str(final))
+                print(f"Skipping completed {job['name']}", flush=True)
+                continue
+            if final.parent.exists() and any(final.parent.iterdir()):
+                if args.restart_incomplete:
+                    job["archive_train_dir"] = str(final.parent)
+                else:
+                    raise ValueError(f"Unfinished training exists in {final.parent}. "
+                                 "This resume mode resumes completed stages, not optimizer steps; "
+                                 "move that unfinished train directory aside before restarting this task.")
+        if job["name"].startswith("evaluate_"):
+            task = job["name"][len("evaluate_"):]
+            summary_path = root / f"CodeTrans_to_{task}" / "eval" / "summary.json"
+            if summary_path.is_file():
+                results = json.loads(summary_path.read_text(encoding="utf-8"))["results"]
+                for evaluated in ("CodeTrans", task):
+                    for split in ("validation", "test"):
+                        if results[evaluated][split]["sampling"] != baseline["results"][evaluated][split]["sampling"]:
+                            raise ValueError(f"Completed evaluation subset mismatch: {task}/{evaluated}/{split}")
+                validate_checkpoint(str(root / f"CodeTrans_to_{task}" / "train" / "final"))
+                print(f"Skipping completed {job['name']}", flush=True)
+                continue
+        jobs.append(job)
+    print(f"Reusing source model, frozen data, and completed baseline from {root}", flush=True)
+    return jobs
+
+
 def run(args):
-    jobs = build_plan(args)
+    jobs = resume_jobs(args) if args.resume else build_plan(args)
     for job in jobs:
         print(f"\n[{job['name']}]\n{shlex.join(job['command'])}", flush=True)
     if args.dry_run:
@@ -151,17 +219,28 @@ def run(args):
         raise ValueError("CUDA_VISIBLE_DEVICES contains fewer GPUs than --num_gpus")
     # This check runs on the server. A local dry run never accesses the source.
     from prepare_pairwise import checkpoint_kind
-    checkpoint_kind(args.source_checkpoint)
+    if not args.resume:
+        checkpoint_kind(args.source_checkpoint)
     root = Path(args.output_dir).resolve()
-    if root.exists() and (not root.is_dir() or any(root.iterdir())):
+    if not args.resume and root.exists() and (not root.is_dir() or any(root.iterdir())):
         raise ValueError(f"Choose a new or empty output directory: {root}")
     root.mkdir(parents=True, exist_ok=True)
     manifest = {"config": vars(args), "objective": "SDFT on B initialized independently from SFT(A)",
                 "validation_policy": "post-training generation; final checkpoint, no model selection",
                 "jobs": jobs}
-    (root / "pairwise_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    if not args.resume:
+        (root / "pairwise_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     for job in jobs:
         print(f"\nRunning {job['name']}", flush=True)
+        if "archive_train_dir" in job:
+            old = Path(job["archive_train_dir"]).resolve()
+            if not old.is_relative_to(root) or old.name != "train":
+                raise ValueError(f"Unexpected archive path: {old}")
+            archived = old.with_name(f"train_interrupted_{time.time_ns()}")
+            old.rename(archived)
+            print(f"Preserved interrupted training in {archived}", flush=True)
+        if args.resume:
+            (root / "resume_config.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
         env = os.environ.copy()
         count = args.num_gpus if job["name"].startswith("train_") else 1
         env["CUDA_VISIBLE_DEVICES"] = ",".join(devices[:count])

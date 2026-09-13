@@ -495,6 +495,7 @@ class DistilTrainer(BaseTrainer):
                     model=vllm_model_path,
                     # Do not inherit BF16 from the exported checkpoint on Turing.
                     dtype="float16" if args.fp16 else "bfloat16" if args.bf16 else "float32",
+                    enforce_eager=os.environ.get("SDFT_VLLM_ENFORCE_EAGER", "0") == "1",
                     tensor_parallel_size=args.vllm_tensor_parallel_size,
                     gpu_memory_utilization=self.vllm_gpu_memory_utilization,
                     max_num_seqs=self.args.per_device_train_batch_size

@@ -324,6 +324,30 @@ environment with the appropriate CUDA toolkit.
 
 ### Multi-GPU pairwise training
 
+The RTX 8000 memory profile now enables non-reentrant gradient checkpointing
+(`SDFT_GRADIENT_CHECKPOINTING=1`) and eager vLLM execution without CUDA graphs
+(`SDFT_VLLM_ENFORCE_EAGER=1`), and reserves a vLLM memory fraction of 0.15.
+These reduce memory use at the cost of throughput. The resume wrapper passes
+`--resume_runtime_settings` to apply current microbatch, accumulation, and vLLM
+memory settings while retaining the saved learning rate, data, and token limits.
+It also passes `--restart_incomplete`: failed training directories are renamed
+to `train_interrupted_<timestamp>` before restarting that task from the source
+checkpoint. Baseline results are reused, not regenerated. This does not restore
+optimizer state from the interrupted task. `resume_config.json` records settings.
+
+To continue the run whose baseline is complete, use
+`bash scripts/resume_sdft_codetrans_pairwise.sh`. Its `RESUME_DIR` default points
+to `sdft_pairwise_20260913_090917_3356052` on the server. Alternatively append
+`--resume /path/to/existing/run` to the regular launch script. Resume restores
+the saved experiment configuration (overriding the launcher's hyperparameters),
+checks baseline sampling manifests, and reuses the exported source and datasets.
+Completed final training checkpoints and evaluation summaries are skipped.
+Runtime environment settings such as precision and attention backend still come
+from the launcher. This is stage-level resume: an unfinished training directory
+must be moved aside explicitly before that task can restart from the source
+model. It does not restore optimizer steps. Missing/incomplete baseline output
+is an error; this mode will not redo baseline evaluation automatically.
+
 For Quadro RTX 8000 (Turing, compute capability 7.5), the script sets
 `SDFT_PRECISION=float16` and `VLLM_ATTENTION_BACKEND=TRITON_ATTN`.
 BF16 and FlashAttention 2 cannot be used on this GPU. Both baseline evaluation

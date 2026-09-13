@@ -56,6 +56,46 @@ class PairwiseTests(unittest.TestCase):
         launch.assert_not_called()
         self.assertFalse((self.root / "run").exists())
 
+    def test_resume_reuses_baseline_and_restores_saved_settings(self):
+        args = self.args("--tasks", "BFP", "--learning_rate", "0.0001")
+        root = Path(args.output_dir)
+        root.mkdir()
+        (root / "pairwise_manifest.json").write_text(json.dumps({"config": vars(args)}))
+        source = root / "source_model"
+        source.mkdir()
+        for name in ("config.json", "model.safetensors", "tokenizer_config.json"):
+            (source / name).write_text("{}")
+        results = {}
+        for task in ("CodeTrans", "BFP"):
+            results[task] = {}
+            for split in ("train", "validation", "test"):
+                path = root / "data" / task / split
+                path.mkdir(parents=True)
+                sampling = {"task": task, "split": split, "selected_rows": 2}
+                (path / "sampling_manifest.json").write_text(json.dumps(sampling))
+                (path / "state.json").write_text("{}")
+                results[task][split] = {"sampling": sampling, "num_samples": 2}
+        (root / "baseline").mkdir()
+        (root / "baseline" / "summary.json").write_text(json.dumps({"results": results}))
+        resumed = self.args("--resume", str(root))
+        jobs = pairwise.resume_jobs(resumed)
+        self.assertEqual([job["name"] for job in jobs], ["train_BFP", "evaluate_BFP"])
+        self.assertEqual(resumed.learning_rate, 0.0001)
+        train_dir = root / "CodeTrans_to_BFP" / "train"
+        train_dir.mkdir(parents=True)
+        (train_dir / "run_config.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "Unfinished training"):
+            pairwise.resume_jobs(resumed)
+        retried = self.args("--resume", str(root), "--resume_runtime_settings", "--restart_incomplete",
+                            "--per_device_train_batch_size", "1", "--num_prompts_per_batch", "8",
+                            "--vllm_gpu_memory_utilization", "0.15")
+        jobs = pairwise.resume_jobs(retried)
+        self.assertEqual(jobs[0]["archive_train_dir"], str(train_dir))
+        self.assertTrue((train_dir / "run_config.json").exists())  # Planning never moves files.
+        self.assertEqual(retried.num_prompts_per_batch, 8)
+        self.assertEqual(retried.vllm_gpu_memory_utilization, 0.15)
+        self.assertEqual(retried.learning_rate, 0.0001)  # Preserve experiment settings.
+
     def test_distributed_launch_only_wraps_training_and_forwards_batch(self):
         args = self.args("--num_gpus", "2", "--per_device_train_batch_size", "3",
                          "--gradient_accumulation_steps", "4")

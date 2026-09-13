@@ -214,6 +214,8 @@ def main():
         fp16 = precision_name() == "float16",
         per_device_train_batch_size = args.per_device_train_batch_size,
         ddp_find_unused_parameters = False,
+        gradient_checkpointing = os.environ.get("SDFT_GRADIENT_CHECKPOINTING", "0") == "1",
+        gradient_checkpointing_kwargs = {"use_reentrant": False},
         gradient_accumulation_steps = args.num_prompts_per_batch,
         # RepeatSampler groups complete generation batches. Choose a divisor
         # of the sampled size so small/non-multiple subsets retain every row.
