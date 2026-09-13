@@ -3,6 +3,15 @@ set -euo pipefail
 SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
 if [[ "$SCRIPT_DIR" == "${BASH_SOURCE[0]}" ]]; then SCRIPT_DIR=.; fi
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# 0 allows Hugging Face downloads; 1 uses cached files only.
+HF_OFFLINE="${HF_OFFLINE:-0}"
+case "$HF_OFFLINE" in
+    0|1) ;;
+    *) echo "HF_OFFLINE must be 0 (online) or 1 (offline)" >&2; exit 2 ;;
+esac
+export HF_HUB_OFFLINE="$HF_OFFLINE"
+export HF_DATASETS_OFFLINE="$HF_OFFLINE"
+export TRANSFORMERS_OFFLINE="$HF_OFFLINE"
 # Tune these defaults here; the command stays the same for one or more GPUs.
 NUM_GPUS="${NUM_GPUS:-4}"
 export CUDA_VISIBLE_DEVICES="0,1,2,3"

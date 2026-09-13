@@ -18,6 +18,7 @@ import prepare_pairwise as preparation
 import run_codetask_pairwise as pairwise
 import main as training
 from local_model import resolve_local_model
+import local_model
 from test_codetask import MemoryDataset, fixture_rows
 
 
@@ -159,6 +160,16 @@ class PairwiseTests(unittest.TestCase):
             download.side_effect = OSError("cache miss")
             with self.assertRaisesRegex(FileNotFoundError, "--base_model"):
                 resolve_local_model("Qwen/Qwen2.5-Coder-1.5B")
+
+    def test_online_switch_allows_snapshot_download(self):
+        model = self.root / "downloaded"
+        model.mkdir()
+        (model / "config.json").write_text("{}")
+        download = Mock(return_value=str(model))
+        with patch.dict(local_model.os.environ, {"HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "0"}), \
+             patch.dict(sys.modules, {"huggingface_hub": types.SimpleNamespace(snapshot_download=download)}):
+            self.assertEqual(resolve_local_model("Qwen/Qwen2.5-Coder-1.5B"), str(model))
+        download.assert_called_once_with(repo_id="Qwen/Qwen2.5-Coder-1.5B", local_files_only=False)
 
     def test_frozen_preparation_separates_training_and_eval_seeds(self):
         calls = []

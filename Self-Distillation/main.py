@@ -4,6 +4,7 @@ import json
 import os
 from math import gcd
 from pathlib import Path
+from local_model import model_local_files_only
 
 from codetask_data import CODETASK_REPO, CODETASK_TASKS, load_codetask_dataset, prompt_length_stats
 
@@ -173,7 +174,7 @@ def main():
             dataset = dataset.select(range(usable))
             if rank == 0:
                 print(f"Using first {usable} sampled rows to fill global microbatches", flush=True)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, local_files_only=model_local_files_only())
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     if manifest is not None and rank == 0:
@@ -233,8 +234,8 @@ def main():
     if args.dataset_name == "codetask" and len(dataset) % config.generation_batch_size:
         raise ValueError("CodeTask subset size must be divisible by the global generation batch. "
                          "Adjust the subset/batch size.")
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=True)
-    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=True)
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=model_local_files_only())
+    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=model_local_files_only())
     trainer = DistilTrainer(
         model=model,
         ref_model=teacher_model,

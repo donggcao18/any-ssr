@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from local_model import model_local_files_only
 
 from codetask_data import CODETASK_TASKS, student_prompt
 
@@ -26,7 +27,7 @@ def evaluate(args):
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=model_local_files_only())
     llm = LLM(model=args.model_path, dtype="bfloat16", seed=args.seed,
               max_model_len=args.max_prompt_length + args.max_completion_length,
               gpu_memory_utilization=args.gpu_memory_utilization)
