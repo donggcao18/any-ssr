@@ -286,8 +286,11 @@ class PairwiseTests(unittest.TestCase):
                                     splits="validation,test", output_dir=str(self.root / "eval"),
                                     seed=1234, max_prompt_length=100, max_completion_length=10,
                                     batch_size=2, gpu_memory_utilization=0.8, prompt_format="legacy")
-        with patch.dict(sys.modules, modules), contextlib.redirect_stdout(io.StringIO()):
+        with patch.dict(sys.modules, modules), \
+             patch.dict(preparation.os.environ, {"SDFT_PRECISION": "float16"}), \
+             contextlib.redirect_stdout(io.StringIO()):
             evaluation.evaluate(args)
+        self.assertEqual(llm_type.call_args.kwargs["dtype"], "float16")
         self.assertEqual(llm_type.return_value.generate.call_count, 2)
         for call in llm_type.return_value.generate.call_args_list:
             text = "".join(chr(i) for i in call.args[0][0]["prompt_token_ids"])

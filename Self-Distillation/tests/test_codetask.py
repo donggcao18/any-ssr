@@ -187,7 +187,10 @@ class SequenceTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
-    def test_short_training_saves_final_student_and_tokenizer(self):
+    def test_fp16_training_keeps_fp32_weights_for_gradient_scaling(self):
+        self.test_short_training_saves_final_student_and_tokenizer("float16")
+
+    def test_short_training_saves_final_student_and_tokenizer(self, precision="bfloat16"):
         tokenizer = Mock()
         auto_tokenizer = Mock()
         auto_tokenizer.from_pretrained.return_value = tokenizer
@@ -202,7 +205,7 @@ class EntryPointTests(unittest.TestCase):
             generation_batch_size=kwargs["steps_per_generation"], **kwargs))
         modules = {
             "transformers": types.SimpleNamespace(AutoTokenizer=auto_tokenizer, AutoModelForCausalLM=models),
-            "torch": types.SimpleNamespace(bfloat16="bf16"),
+            "torch": types.SimpleNamespace(bfloat16="bf16", float32="fp32"),
             "distil_config": types.SimpleNamespace(DistilConfig=config_type),
             "distil_trainer": types.SimpleNamespace(DistilTrainer=trainer_type),
         }
@@ -211,6 +214,7 @@ class EntryPointTests(unittest.TestCase):
             args = ["main.py", "--dataset_name", "codetask", "--codetask_task", "BFP",
                     "--model_name", "previous/final", "--output_dir", temp, "--num_train", "100"]
             with patch.object(sys, "argv", args), patch.dict(sys.modules, modules), \
+                 patch.dict(entrypoint.os.environ, {"SDFT_PRECISION": precision}), \
                  patch.object(entrypoint, "load_codetask_dataset", return_value=([0] * 100, {"source_rows": 200})), \
                  patch.object(entrypoint, "prompt_length_stats", return_value=stats), \
                  contextlib.redirect_stdout(io.StringIO()):
@@ -218,8 +222,12 @@ class EntryPointTests(unittest.TestCase):
             self.assertEqual(config_type.call_args.kwargs["steps_per_generation"], 4)
             self.assertEqual(config_type.call_args.kwargs["gradient_accumulation_steps"], 32)
             self.assertEqual(models.from_pretrained.call_count, 2)
+            self.assertEqual(config_type.call_args.kwargs["fp16"], precision == "float16")
+            self.assertEqual(config_type.call_args.kwargs["bf16"], precision == "bfloat16")
             for call in models.from_pretrained.call_args_list:
                 self.assertEqual(call.args[0], "previous/final")
+                self.assertEqual(call.kwargs["dtype"], "fp32" if precision == "float16" else "bf16")
+                self.assertEqual(call.kwargs["attn_implementation"], "sdpa")
             trainer.train.assert_called_once_with()
             trainer.save_model.assert_called_once_with(str(Path(temp) / "final"))
             tokenizer.save_pretrained.assert_called_once_with(str(Path(temp) / "final"))

@@ -5,6 +5,7 @@ import os
 from math import gcd
 from pathlib import Path
 from local_model import model_local_files_only
+from precision import precision_name, training_dtype_name
 
 from codetask_data import CODETASK_REPO, CODETASK_TASKS, load_codetask_dataset, prompt_length_stats
 
@@ -126,6 +127,8 @@ Now answer with a response of your own, including the thinking process.
 
 def main():
     args = parse_args()
+    args.precision = precision_name()
+    args.vllm_attention_backend = os.environ.get("VLLM_ATTENTION_BACKEND", "auto")
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     if world_size > 1:
@@ -207,8 +210,8 @@ def main():
         warmup_ratio = args.warmup_ratio,
         lr_scheduler_type = "cosine",
         logging_steps = 1,
-        bf16 = True,
-        fp16 = False,
+        bf16 = precision_name() == "bfloat16",
+        fp16 = precision_name() == "float16",
         per_device_train_batch_size = args.per_device_train_batch_size,
         ddp_find_unused_parameters = False,
         gradient_accumulation_steps = args.num_prompts_per_batch,
@@ -234,8 +237,11 @@ def main():
     if args.dataset_name == "codetask" and len(dataset) % config.generation_batch_size:
         raise ValueError("CodeTask subset size must be divisible by the global generation batch. "
                          "Adjust the subset/batch size.")
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=model_local_files_only())
-    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=torch.bfloat16, local_files_only=model_local_files_only())
+    model_dtype = getattr(torch, training_dtype_name())
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=model_dtype,
+        attn_implementation="sdpa", local_files_only=model_local_files_only())
+    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=model_dtype,
+        attn_implementation="sdpa", local_files_only=model_local_files_only())
     trainer = DistilTrainer(
         model=model,
         ref_model=teacher_model,

@@ -324,6 +324,17 @@ environment with the appropriate CUDA toolkit.
 
 ### Multi-GPU pairwise training
 
+For Quadro RTX 8000 (Turing, compute capability 7.5), the script sets
+`SDFT_PRECISION=float16` and `VLLM_ATTENTION_BACKEND=TRITON_ATTN`.
+BF16 and FlashAttention 2 cannot be used on this GPU. Both baseline evaluation
+and training generation explicitly use FP16. Training uses FP32 weights with
+FP16 autocast/gradient scaling and PyTorch SDPA attention. CPU checkpoint export
+can retain BF16 storage; vLLM converts it to the selected inference dtype.
+The current four-GPU script defaults to batch one and accumulation eight,
+preserving effective batch 32 while reducing activation memory. No GPU execution
+has been validated locally. Copy the new `precision.py` along with the updated
+training/evaluation files and launcher before rerunning.
+
 Run `bash scripts/train_sdft_codetrans_pairwise.sh` from the repository root.
 Edit the settings at the top of that script; defaults use two GPUs, batch size
 one per GPU, and 16 accumulation steps (effective batch 32). Set `NUM_GPUS=1`

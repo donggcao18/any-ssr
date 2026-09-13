@@ -493,6 +493,8 @@ class DistilTrainer(BaseTrainer):
                 logger.info(f"[DEBUG] Initializing vLLM with model: {vllm_model_path}, generate_from_teacher={self.generate_from_teacher}")
                 self.llm = LLM(
                     model=vllm_model_path,
+                    # Do not inherit BF16 from the exported checkpoint on Turing.
+                    dtype="float16" if args.fp16 else "bfloat16" if args.bf16 else "float32",
                     tensor_parallel_size=args.vllm_tensor_parallel_size,
                     gpu_memory_utilization=self.vllm_gpu_memory_utilization,
                     max_num_seqs=self.args.per_device_train_batch_size
