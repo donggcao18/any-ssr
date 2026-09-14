@@ -63,7 +63,7 @@ class PairwiseTests(unittest.TestCase):
         (root / "pairwise_manifest.json").write_text(json.dumps({"config": vars(args)}))
         source = root / "source_model"
         source.mkdir()
-        for name in ("config.json", "model.safetensors", "tokenizer_config.json"):
+        for name in ("adapter_config.json", "adapter_model.safetensors", "tokenizer_config.json"):
             (source / name).write_text("{}")
         results = {}
         for task in ("CodeTrans", "BFP"):
@@ -87,14 +87,36 @@ class PairwiseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unfinished training"):
             pairwise.resume_jobs(resumed)
         retried = self.args("--resume", str(root), "--resume_runtime_settings", "--restart_incomplete",
-                            "--per_device_train_batch_size", "1", "--num_prompts_per_batch", "8",
+                            "--per_device_train_batch_size", "2", "--num_prompts_per_batch", "4",
                             "--vllm_gpu_memory_utilization", "0.15")
         jobs = pairwise.resume_jobs(retried)
         self.assertEqual(jobs[0]["archive_train_dir"], str(train_dir))
         self.assertTrue((train_dir / "run_config.json").exists())  # Planning never moves files.
-        self.assertEqual(retried.num_prompts_per_batch, 8)
+        self.assertEqual(retried.per_device_train_batch_size, 2)
+        self.assertEqual(retried.num_prompts_per_batch, 4)
         self.assertEqual(retried.vllm_gpu_memory_utilization, 0.15)
         self.assertEqual(retried.learning_rate, 0.0001)  # Preserve experiment settings.
+        # An old baseline from a merged SFT adapter can be reused, but its full
+        # weights must never become the trainable LoRA source.
+        original = self.root / "original_adapter"
+        original.mkdir()
+        (original / "adapter_config.json").write_text("{}")
+        (original / "adapter_model.safetensors").write_text("fixture")
+        (source / "adapter_config.json").unlink()
+        (source / "adapter_model.safetensors").unlink()
+        (source / "config.json").write_text("{}")
+        (source / "model.safetensors").write_text("fixture")
+        (source / "source_manifest.json").write_text(json.dumps({
+            "source_checkpoint": str(original), "kind": "adapter", "adapter_merged": True,
+            "base_model": "cached/base",
+        }))
+        jobs = pairwise.resume_jobs(retried)
+        self.assertEqual([j["name"] for j in jobs], ["prepare_source_adapter", "train_BFP", "evaluate_BFP"])
+        self.assertIn(str(original), jobs[0]["command"])
+        train = jobs[1]["command"]
+        self.assertEqual(train[train.index("--model_name") + 1], str(root / "source_adapter"))
+        self.assertTrue((root / "baseline" / "summary.json").exists())
+        self.assertFalse((root / "source_adapter").exists())  # Dry planning has no mutations.
 
     def test_distributed_launch_only_wraps_training_and_forwards_batch(self):
         args = self.args("--num_gpus", "2", "--per_device_train_batch_size", "3",
@@ -150,35 +172,28 @@ class PairwiseTests(unittest.TestCase):
         self.assertEqual(tokenizer.call_args.args[0], formatted["prompt"])
         tokenizer.apply_chat_template.assert_not_called()
 
-    def test_checkpoint_detection_and_adapter_merge_use_recorded_base(self):
+    def test_export_saves_adapter_without_merging(self):
+        import lora_runtime
         source = self.root / "adapter"
         source.mkdir()
         (source / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "recorded/base"}))
-        with self.assertRaises(ValueError):
-            preparation.checkpoint_kind(source)
         (source / "adapter_model.safetensors").write_text("fixture")
-        self.assertEqual(preparation.checkpoint_kind(source), "adapter")
-        (source / "tokenizer_config.json").write_text("{}")
-        tokenizer = MagicMock()
-        tokenizer.__len__.return_value = 17
-        auto_tokenizer = Mock()
-        auto_tokenizer.from_pretrained.return_value = tokenizer
-        auto_model, peft_model, merged = Mock(), Mock(), Mock()
-        peft_model.from_pretrained.return_value.merge_and_unload.return_value = merged
-        merged.save_pretrained.side_effect = lambda path, **kwargs: Path(path).mkdir()
-        modules = {"torch": types.SimpleNamespace(bfloat16="bf16"),
-                   "transformers": types.SimpleNamespace(AutoTokenizer=auto_tokenizer, AutoModelForCausalLM=auto_model),
-                   "peft": types.SimpleNamespace(PeftModel=peft_model)}
-        with patch.dict(sys.modules, modules), \
-             patch.object(preparation, "resolve_local_model", return_value="/cached/base") as resolve:
+        tokenizer, model = Mock(), Mock()
+        tokenizer.save_pretrained.side_effect = lambda path: Path(path).mkdir(exist_ok=True)
+        def save(model, path):
+            Path(path).mkdir()
+        with patch.dict(sys.modules, {
+                "torch": types.SimpleNamespace(float32="fp32"),
+                "transformers": types.SimpleNamespace(AutoTokenizer=Mock(from_pretrained=Mock(return_value=tokenizer)))}), \
+             patch.object(preparation, "resolve_local_model", return_value="/cached/base"), \
+             patch.object(lora_runtime, "load_lora_model", return_value=model) as load, \
+             patch.object(lora_runtime, "save_lora", side_effect=save) as saved:
             preparation.export_checkpoint(str(source), self.root / "export")
-        resolve.assert_called_once_with("recorded/base")
-        self.assertEqual(auto_model.from_pretrained.call_args.args[0], "/cached/base")
-        for loader in (auto_model, auto_tokenizer, peft_model):
-            self.assertTrue(loader.from_pretrained.call_args.kwargs["local_files_only"])
-        auto_model.from_pretrained.return_value.resize_token_embeddings.assert_called_once_with(24)
-        peft_model.from_pretrained.return_value.merge_and_unload.assert_called_once_with(safe_merge=True)
-        merged.save_pretrained.assert_called_once()
+        self.assertFalse(load.call_args.kwargs["trainable"])
+        saved.assert_called_once()
+        model.merge_and_unload.assert_not_called()
+        manifest = json.loads((self.root / "export" / "source_manifest.json").read_text())
+        self.assertFalse(manifest["adapter_merged"])
 
     def test_local_model_directory_needs_no_hub_call(self):
         model = self.root / "local_model"

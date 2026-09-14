@@ -70,7 +70,7 @@ def parse_args(argv=None):
 def build_plan(args):
     scripts = Path(__file__).resolve().parent
     root = Path(args.output_dir).resolve()
-    source = str(root / "source_model")
+    source = getattr(args, "training_source", None) or str(root / "source_model")
     data = str(root / "data")
 
     def command(script, *options):
@@ -157,8 +157,29 @@ def resume_jobs(args):
             setattr(args, key, value)
     args.output_dir = str(root)
     from prepare_pairwise import checkpoint_kind
-    if checkpoint_kind(root / "source_model") != "full":
-        raise ValueError("Resume requires the exported full source model")
+    needs_adapter_export = False
+    if checkpoint_kind(root / "source_model") != "adapter":
+        # The old runner merged the starting SFT adapter for baseline inference.
+        # Reuse that baseline, but restart training from its original adapter.
+        provenance = json.loads((root / "source_model" / "source_manifest.json").read_text(encoding="utf-8"))
+        if provenance.get("kind") != "adapter" or not provenance.get("adapter_merged"):
+            raise ValueError("Cannot trace the baseline's full source model to an original SFT LoRA adapter")
+        original = provenance["source_checkpoint"]
+        if checkpoint_kind(original) != "adapter":
+            raise ValueError("Baseline reuse requires the original SFT LoRA adapter")
+        args.source_checkpoint = original
+        args.base_model = provenance["base_model"]
+        args.training_source = str(root / "source_adapter")
+        args.baseline_reused_from_merged_sft = True
+        adapter_dir = Path(args.training_source)
+        if (adapter_dir / "source_manifest.json").is_file():
+            exported = json.loads((adapter_dir / "source_manifest.json").read_text(encoding="utf-8"))
+            if checkpoint_kind(adapter_dir) != "adapter" or exported.get("source_checkpoint") != original:
+                raise ValueError("Prepared source adapter does not match the baseline's source checkpoint")
+        else:
+            needs_adapter_export = True
+        print("Reusing the SFT baseline; LoRA training will use its original unmerged adapter. "
+              "Merged/vLLM and unmerged/Transformers inference may differ numerically.", flush=True)
     if not (root / "source_model" / "tokenizer_config.json").is_file():
         raise ValueError("Exported tokenizer is missing")
     baseline = json.loads((root / "baseline" / "summary.json").read_text(encoding="utf-8"))
@@ -173,8 +194,9 @@ def resume_jobs(args):
                 result = baseline["results"][task][split]
                 if result["sampling"] != sampling or result["num_samples"] != sampling["selected_rows"]:
                     raise ValueError(f"Baseline/subset mismatch: {task}/{split}")
-    jobs = []
-    for job in build_plan(args)[3:]:
+    plan = build_plan(args)
+    jobs = [dict(plan[0], name="prepare_source_adapter")] if needs_adapter_export else []
+    for job in plan[3:]:
         if "checkpoint" in job:
             final = Path(job["checkpoint"])
             if (final / "training_complete.json").is_file():
@@ -225,7 +247,8 @@ def run(args):
     if not args.resume and root.exists() and (not root.is_dir() or any(root.iterdir())):
         raise ValueError(f"Choose a new or empty output directory: {root}")
     root.mkdir(parents=True, exist_ok=True)
-    manifest = {"config": vars(args), "objective": "SDFT on B initialized independently from SFT(A)",
+    manifest = {"config": vars(args), "training_mode": "lora_only",
+                "objective": "LoRA-only SDFT on B initialized independently from the SFT(A) adapter",
                 "validation_policy": "post-training generation; final checkpoint, no model selection",
                 "jobs": jobs}
     if not args.resume:

@@ -29,33 +29,22 @@ def export_checkpoint(source, output, base_model=None):
     output = Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"Checkpoint output must be empty: {output}")
+    if kind != "adapter":
+        raise ValueError("LoRA-only export requires the original CodeTrans adapter checkpoint, not merged weights")
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    base = source
-    if kind == "adapter":
-        adapter_config = json.loads((Path(source) / "adapter_config.json").read_text(encoding="utf-8"))
-        base = base_model or adapter_config.get("base_model_name_or_path")
-        if not base:
-            raise ValueError("Adapter config has no base model; supply --base_model")
-    # Resolve Hub IDs from the existing cache only; give all downstream loaders
-    # a real directory so adapter export never attempts to download the base.
-    base = resolve_local_model(base)
+    from transformers import AutoTokenizer
+    from lora_runtime import load_lora_model, save_lora
+    adapter_config = json.loads((Path(source) / "adapter_config.json").read_text())
+    base = resolve_local_model(base_model or adapter_config["base_model_name_or_path"])
     tokenizer_source = source if (Path(source) / "tokenizer_config.json").is_file() else base
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, local_files_only=True)
-    # CPU export avoids competing with the subsequent vLLM process for GPU memory.
-    model = AutoModelForCausalLM.from_pretrained(
-        base, dtype=torch.bfloat16, low_cpu_mem_usage=True, local_files_only=True)
-    if kind == "adapter":
-        from peft import PeftModel
-        # Match utils/model/model_utils.py, which resizes before attaching LoRA.
-        model.resize_token_embeddings(8 * ((len(tokenizer) + 7) // 8))
-        model = PeftModel.from_pretrained(model, source, local_files_only=True).merge_and_unload(safe_merge=True)
-    model.save_pretrained(str(output), safe_serialization=True)
+    model = load_lora_model(source, tokenizer, torch.float32, trainable=False, base_override=base)
+    save_lora(model, output)
     tokenizer.save_pretrained(str(output))
     (output / "source_manifest.json").write_text(json.dumps({
-        "source_checkpoint": source, "kind": kind, "base_model": base,
-        "tokenizer_source": tokenizer_source, "adapter_merged": kind == "adapter",
+        "source_checkpoint": source, "kind": "adapter", "base_model": base,
+        "tokenizer_source": tokenizer_source, "adapter_merged": False,
+        "training_mode": "lora_only",
     }, indent=2), encoding="utf-8")
 
 

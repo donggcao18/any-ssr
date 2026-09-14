@@ -218,17 +218,16 @@ desired. Every target independently loads the same exported CodeTrans SFT model.
 This is **SFT(A) → SDFT(B)**; it does not retrain A, run an additional SFT(B)
 baseline, or carry weights from one target to another. Student and teacher both
 initialize from SFT(A), with a fresh optimizer/scheduler for every pair. The
-existing full-model SDFT loss and EMA teacher update are retained.
+distillation loss is retained; optimization and teacher EMA update only LoRA A/B tensors.
 
 The runner:
 
-1. Detects a PEFT adapter versus a full HF model at the server path. For an
-   adapter, it loads the base recorded in `adapter_config.json`, matches the
-   original tokenizer vocabulary resizing, merges the adapter on CPU, and saves
-   a full HF model plus tokenizer under `source_model/`. A full source model is
-   also exported there. The original checkpoint is read only. If the adapter's
-   recorded base path is unavailable, supply `--base_model` with the **same base
-   model** at an accessible path/Hub ID; do not substitute an Instruct variant.
+1. Loads the original CodeTrans PEFT adapter and its recorded base, reproduces
+   the original vocabulary size, and saves adapter weights plus tokenizer under
+   `source_model/`. No adapter merging or full-model export is performed. The
+   base stays frozen. `--base_model` can override an unavailable base path, but
+   must point to the same pretrained model. Standard LoRA with `bias=none` and
+   no `modules_to_save` or DoRA is required.
 2. Resolves one HF dataset revision, samples and saves subsets once, and reuses
    those exact files across all baseline and pair evaluations. Training uses
    `--seed 42`; held-out subsets use `--eval_seed 1234` by default.
@@ -273,11 +272,11 @@ Default output structure:
 ```text
 outputs/sdft_pairwise_codetrans/
   pairwise_manifest.json
-  source_model/                       # Full SFT(A) model, used by every pair
+  source_model/                       # SFT(A) adapter, used by every pair
   data/<task>/<split>/                 # Frozen raw subsets + manifests
   baseline/<task>/<validation|test>/   # Starting SFT(A) predictions + metrics
   CodeTrans_to_BFP/
-    train/final/                      # SDFT(B) final student
+    train/final/                      # SDFT(B) adapter + tokenizer + metadata
     eval/CodeTrans/<validation|test>/
     eval/BFP/<validation|test>/
   ...
@@ -285,8 +284,8 @@ outputs/sdft_pairwise_codetrans/
 ```
 
 Runs stop on failed commands or incomplete checkpoints and require a new/empty
-output root. There is no automatic resume. Evaluation uses a separate vLLM
-process after training releases GPU memory. The default full sequence remains
+output root. LoRA runs support stage-level resume. Adapter evaluation uses a
+separate Transformers process after training releases GPU memory. The default full sequence remains
 available through `train_sdft_codetask_all8.sh`.
 
 Pairwise checkpoint export loads models locally only. A Hub model ID in the
@@ -322,75 +321,62 @@ does not uninstall an existing package. Retry with a fresh output directory.
 For an actual DeepSpeed/ZeRO run, install `deepspeed==0.18.4` separately in an
 environment with the appropriate CUDA toolkit.
 
-### Multi-GPU pairwise training
+### LoRA-only pairwise training and saving
 
-The RTX 8000 memory profile now enables non-reentrant gradient checkpointing
-(`SDFT_GRADIENT_CHECKPOINTING=1`) and eager vLLM execution without CUDA graphs
-(`SDFT_VLLM_ENFORCE_EAGER=1`), and reserves a vLLM memory fraction of 0.15.
-These reduce memory use at the cost of throughput. The resume wrapper passes
-`--resume_runtime_settings` to apply current microbatch, accumulation, and vLLM
-memory settings while retaining the saved learning rate, data, and token limits.
-It also passes `--restart_incomplete`: failed training directories are renamed
-to `train_interrupted_<timestamp>` before restarting that task from the source
-checkpoint. Baseline results are reused, not regenerated. This does not restore
-optimizer state from the interrupted task. `resume_config.json` records settings.
+Run `bash scripts/train_sdft_codetrans_pairwise.sh` for a fresh experiment.
+Every pair starts from the same CodeTrans adapter on the same frozen base.
+The adapter rank, alpha, dropout, and target modules are inherited from its
+`adapter_config.json`. The teacher starts as an identical frozen copy; EMA
+updates only its LoRA A/B tensors. Base weights are never optimized or merged.
+The training code asserts that LoRA tensors are present before training.
 
-To continue the run whose baseline is complete, use
-`bash scripts/resume_sdft_codetrans_pairwise.sh`. Its `RESUME_DIR` default points
-to `sdft_pairwise_20260913_090917_3356052` on the server. Alternatively append
-`--resume /path/to/existing/run` to the regular launch script. Resume restores
-the saved experiment configuration (overriding the launcher's hyperparameters),
-checks baseline sampling manifests, and reuses the exported source and datasets.
-Completed final training checkpoints and evaluation summaries are skipped.
-Runtime environment settings such as precision and attention backend still come
-from the launcher. This is stage-level resume: an unfinished training directory
-must be moved aside explicitly before that task can restart from the source
-model. It does not restore optimizer steps. Missing/incomplete baseline output
-is an error; this mode will not redo baseline evaluation automatically.
+Periodic and final checkpoints contain `adapter_model.safetensors`,
+`adapter_config.json`, tokenizer files, and `lora_metadata.json`. Final checkpoints
+also include `training_complete.json`. Full model weights, embedding weights,
+and optimizer states are not saved. Keep access to the exact pretrained base
+referenced in the adapter config. `lora_metadata.json` preserves the original
+vocabulary resizing needed to reload the model without saved embeddings.
 
-For Quadro RTX 8000 (Turing, compute capability 7.5), the script sets
-`SDFT_PRECISION=float16` and `VLLM_ATTENTION_BACKEND=TRITON_ATTN`.
-BF16 and FlashAttention 2 cannot be used on this GPU. Both baseline evaluation
-and training generation explicitly use FP16. Training uses FP32 weights with
-FP16 autocast/gradient scaling and PyTorch SDPA attention. CPU checkpoint export
-can retain BF16 storage; vLLM converts it to the selected inference dtype.
-The current four-GPU script defaults to batch one and accumulation eight,
-preserving effective batch 32 while reducing activation memory. No GPU execution
-has been validated locally. Copy the new `precision.py` along with the updated
-training/evaluation files and launcher before rerunning.
+This path uses Transformers generation for both on-policy sampling and adapter
+inference. It avoids modifying base weights by merging/unmerging adapters for
+vLLM, and avoids a third model copy on the GPU. The teacher still scores student
+completions using reference-conditioned prompts and the same distillation loss.
+vLLM settings are unused for LoRA training; legacy full-model evaluation can
+still use vLLM. Transformers adapter inference may be slower than vLLM.
 
-Run `bash scripts/train_sdft_codetrans_pairwise.sh` from the repository root.
-Edit the settings at the top of that script; defaults use two GPUs, batch size
-one per GPU, and 16 accumulation steps (effective batch 32). Set `NUM_GPUS=1`
-for one GPU. An existing `CUDA_VISIBLE_DEVICES` is respected and must expose
-at least `NUM_GPUS` devices. Do not launch the pairwise runner with torchrun;
-it launches each training job using `python -m torch.distributed.run` itself.
+The script currently uses four GPUs, per-GPU batch two, and accumulation four,
+for an effective batch of 32. It launches DDP training itself. Export and
+adapter evaluation run once; evaluation uses the first selected GPU. Edit
+`NUM_GPUS`, `CUDA_VISIBLE_DEVICES`, `PER_DEVICE_BATCH_SIZE`,
+`GRADIENT_ACCUMULATION_STEPS`, `LEARNING_RATE`, `EPOCHS`, `EMA_ALPHA`,
+`WARMUP_RATIO`, token limits, `SAVE_STEPS`, sample caps and seeds in the script.
+`SDFT_PRECISION=float16` supports RTX 8000; frozen base weights use FP16 while
+PEFT promotes trainable adapters to FP32 for AMP gradient scaling.
+Gradient checkpointing remains configurable through `SDFT_GRADIENT_CHECKPOINTING`.
 
-Tunable script settings include `PER_DEVICE_BATCH_SIZE`,
-`GRADIENT_ACCUMULATION_STEPS`, `LEARNING_RATE`, `EPOCHS`, `WARMUP_RATIO`,
-`EMA_ALPHA`, `MAX_PROMPT_LENGTH`, `MAX_COMPLETION_LENGTH`,
-`VLLM_MEMORY_FRACTION`, `EVAL_BATCH_SIZE`, `SAVE_STEPS`, and the existing
-sample caps and seeds. CLI options appended to the script override its defaults.
-Effective batch is GPU count times per-device batch times accumulation steps;
-the last optimizer step in an epoch may be smaller.
+Training retains the largest prefix of the frozen sample divisible by GPU count
+and per-GPU batch, recording retained/dropped counts. Evaluation subsets are
+unchanged. Tests and baseline generations do not affect model selection.
 
-Training uses DDP on one machine with a full student, teacher, and colocated
-vLLM engine on each GPU (vLLM tensor parallelism is one). This distributes
-training work but does not shard model or optimizer memory. Export, preparation,
-and evaluation run once; evaluation uses the first selected GPU. DeepSpeed is
-not required. Rank zero writes run manifests and the final completion marker.
+Previously trained full-model weights are not equivalent to LoRA-only training
+and cannot be resumed as adapter checkpoints. However, the starting SFT baseline
+can be reused: resume reads the old merged export's `source_manifest.json`,
+checks that its original SFT adapter is available, and prepares an unmerged
+`source_adapter/` for all new training jobs without repeating baseline evaluation.
+The saved `resume_config.json` records this reuse; merged/vLLM baseline inference
+and unmerged/Transformers inference may differ numerically. The original SFT
+checkpoint must not have been modified since baseline generation.
+Set `RESUME_DIR` in
+`scripts/resume_sdft_codetrans_pairwise.sh`. It reuses completed source/data/
+baseline stages and adapter checkpoints, restoring saved experiment settings.
+The wrapper applies current microbatch/accumulation settings and archives
+unfinished training directories before restarting a task from the source adapter;
+it does not restore optimizer steps.
 
-To avoid implicit sampler dropping or padding, training uses the largest prefix
-of the frozen train subset divisible by GPU count times per-device batch.
-It drops fewer than one global microbatch and records `training_rows` and
-`dropped_for_global_microbatch` in the training manifest. Validation/test subsets
-are unchanged. Generation groups divide both the retained subset and the
-accumulation interval.
-
-An initial server smoke run can use `bash scripts/train_sdft_codetrans_pairwise.sh
---tasks BFP --num_train 64 --num_validation 8 --num_test 8`.
-Local checks cover launch construction and batch arithmetic; actual distributed
-CUDA/vLLM execution requires testing on the server.
+Local dependency-free tests cover freezing, EMA, save policy, launch planning,
+and resume checks. A small CPU PyTorch/PEFT optimizer-and-reload test is included
+and runs when those dependencies are installed. Actual GPU execution still
+requires validation on the server.
 
 ### 5. Forgetting Evaluation
 

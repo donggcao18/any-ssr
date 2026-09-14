@@ -12,17 +12,18 @@ esac
 export HF_HUB_OFFLINE="$HF_OFFLINE"
 export HF_DATASETS_OFFLINE="$HF_OFFLINE"
 export TRANSFORMERS_OFFLINE="$HF_OFFLINE"
-# Quadro RTX 8000 (Turing / SM 7.5): no native BF16 or FlashAttention 2.
+# LoRA-only training uses Transformers generation (no colocated vLLM model).
+# Rank/alpha/target modules are inherited from the source adapter_config.json.
+# Quadro RTX 8000 (Turing / SM 7.5): use FP16 for the frozen base.
 export SDFT_PRECISION="${SDFT_PRECISION:-float16}"
-export VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}"
 export SDFT_GRADIENT_CHECKPOINTING="${SDFT_GRADIENT_CHECKPOINTING:-1}"
-export SDFT_VLLM_ENFORCE_EAGER="${SDFT_VLLM_ENFORCE_EAGER:-1}"
 # Tune these defaults here; the command stays the same for one or more GPUs.
 NUM_GPUS="${NUM_GPUS:-4}"
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
-PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
-GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-8}"
+# Conservative RTX 8000 LoRA starting point; measure peak VRAM on the server.
+PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-4}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-2}"
 # Effective batch = NUM_GPUS * PER_DEVICE_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS.
 LEARNING_RATE="${LEARNING_RATE:-2e-5}"
 EPOCHS="${EPOCHS:-1}"
@@ -30,7 +31,6 @@ WARMUP_RATIO="${WARMUP_RATIO:-0.1}"
 EMA_ALPHA="${EMA_ALPHA:-0.01}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-512}"
 MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-256}"
-VLLM_MEMORY_FRACTION="${VLLM_MEMORY_FRACTION:-0.15}"
 EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-8}"
 SAVE_STEPS="${SAVE_STEPS:-100}"
 
@@ -52,7 +52,6 @@ exec "${PYTHON_BIN:-python}" "$REPO_ROOT/Self-Distillation/run_codetask_pairwise
   --ref_model_mixup_alpha "$EMA_ALPHA" \
   --max_prompt_length "$MAX_PROMPT_LENGTH" \
   --max_completion_length "$MAX_COMPLETION_LENGTH" \
-  --vllm_gpu_memory_utilization "$VLLM_MEMORY_FRACTION" \
   --eval_batch_size "$EVAL_BATCH_SIZE" \
   --save_steps "$SAVE_STEPS" \
   --output_dir "$OUTPUT_DIR" \

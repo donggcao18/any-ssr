@@ -21,7 +21,6 @@ def encode_prompt(tokenizer, instruction, prompt_format, max_prompt_length):
 def evaluate(args):
     from datasets import load_from_disk
     from transformers import AutoTokenizer
-    from vllm import LLM, SamplingParams
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     # Import before generation so missing metric dependencies fail immediately.
     from evaluator.compute_metrics import compute_metrics, DATASET_TO_OUTPUT_LANG
@@ -29,11 +28,17 @@ def evaluate(args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=model_local_files_only())
-    llm = LLM(model=args.model_path, dtype=precision_name(), seed=args.seed,
-              max_model_len=args.max_prompt_length + args.max_completion_length,
-              gpu_memory_utilization=args.gpu_memory_utilization)
-    sampling = SamplingParams(temperature=0.0, max_tokens=args.max_completion_length,
-                              stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else None)
+    if (Path(args.model_path) / "adapter_config.json").is_file():
+        from lora_runtime import AdapterGenerator
+        llm = AdapterGenerator(args.model_path, tokenizer, precision_name(), args.max_completion_length)
+        sampling = None
+    else:
+        from vllm import LLM, SamplingParams
+        llm = LLM(model=args.model_path, dtype=precision_name(), seed=args.seed,
+                  max_model_len=args.max_prompt_length + args.max_completion_length,
+                  gpu_memory_utilization=args.gpu_memory_utilization)
+        sampling = SamplingParams(temperature=0.0, max_tokens=args.max_completion_length,
+                                  stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else None)
     summary = {"config": vars(args), "results": {}}
     for task in args.tasks.split(","):
         if task not in CODETASK_TASKS:

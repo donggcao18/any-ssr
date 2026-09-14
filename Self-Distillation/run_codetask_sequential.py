@@ -85,14 +85,16 @@ def build_stages(args):
 
 def validate_checkpoint(final_dir):
     final_dir = Path(final_dir)
-    required = ("config.json", "tokenizer_config.json", "training_complete.json")
+    required = ("adapter_config.json", "tokenizer_config.json", "training_complete.json")
     if any(not (final_dir / name).is_file() for name in required):
         raise RuntimeError(f"Incomplete final checkpoint: {final_dir}")
     if not any((final_dir / name).is_file() for name in (
-        "model.safetensors", "model.safetensors.index.json",
-        "pytorch_model.bin", "pytorch_model.bin.index.json",
+        "adapter_model.safetensors", "adapter_model.bin",
     )):
-        raise RuntimeError(f"No full model weights saved in {final_dir}")
+        raise RuntimeError(f"No LoRA adapter weights saved in {final_dir}")
+    if any((final_dir / name).exists() for name in ("model.safetensors", "model.safetensors.index.json",
+                                                   "pytorch_model.bin", "pytorch_model.bin.index.json")):
+        raise RuntimeError(f"Unexpected full-model weights in LoRA checkpoint: {final_dir}")
 
 
 def run(args):

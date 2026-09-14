@@ -158,7 +158,7 @@ class SequenceTests(unittest.TestCase):
             observed.append(source)
             final = Path(command[command.index("--output_dir") + 1]) / "final"
             final.mkdir(parents=True)
-            for name in ("config.json", "tokenizer_config.json", "training_complete.json", "model.safetensors"):
+            for name in ("adapter_config.json", "tokenizer_config.json", "training_complete.json", "adapter_model.safetensors"):
                 (final / name).write_text("{}")
 
         with patch.object(sequence.subprocess, "run", side_effect=simulate_training), contextlib.redirect_stdout(io.StringIO()):
@@ -187,52 +187,39 @@ class SequenceTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
-    def test_fp16_training_keeps_fp32_weights_for_gradient_scaling(self):
-        self.test_short_training_saves_final_student_and_tokenizer("float16")
-
-    def test_short_training_saves_final_student_and_tokenizer(self, precision="bfloat16"):
-        tokenizer = Mock()
-        auto_tokenizer = Mock()
-        auto_tokenizer.from_pretrained.return_value = tokenizer
-        models = Mock()
-        models.from_pretrained.side_effect = ["student", "teacher"]
-        trainer = Mock()
+    def test_lora_training_saves_adapter_and_disables_vllm(self):
+        tokenizer, model, trainer = Mock(), Mock(), Mock()
         trainer.state.global_step = 4
+        trainer.model = model
         trainer.is_world_process_zero.return_value = True
         trainer.save_model.side_effect = lambda path: Path(path).mkdir(parents=True)
-        trainer_type = Mock(return_value=trainer)
-        config_type = Mock(side_effect=lambda **kwargs: types.SimpleNamespace(
-            generation_batch_size=kwargs["steps_per_generation"], **kwargs))
+        config_type = Mock(side_effect=lambda **kw: types.SimpleNamespace(
+            generation_batch_size=kw["steps_per_generation"], **kw))
         modules = {
-            "transformers": types.SimpleNamespace(AutoTokenizer=auto_tokenizer, AutoModelForCausalLM=models),
-            "torch": types.SimpleNamespace(bfloat16="bf16", float32="fp32"),
+            "transformers": types.SimpleNamespace(AutoTokenizer=Mock(from_pretrained=Mock(return_value=tokenizer)),
+                                                  AutoModelForCausalLM=Mock()),
+            "torch": types.SimpleNamespace(float16="fp16"),
             "distil_config": types.SimpleNamespace(DistilConfig=config_type),
-            "distil_trainer": types.SimpleNamespace(DistilTrainer=trainer_type),
+            "distil_trainer": types.SimpleNamespace(DistilTrainer=Mock(return_value=trainer)),
         }
-        stats = {"prompt": {"rows_over_limit": 0}, "teacher_prompt": {"rows_over_limit": 0}}
         with tempfile.TemporaryDirectory() as temp:
-            args = ["main.py", "--dataset_name", "codetask", "--codetask_task", "BFP",
+            argv = ["main.py", "--dataset_name", "codetask", "--codetask_task", "BFP",
                     "--model_name", "previous/final", "--output_dir", temp, "--num_train", "100"]
-            with patch.object(sys, "argv", args), patch.dict(sys.modules, modules), \
-                 patch.dict(entrypoint.os.environ, {"SDFT_PRECISION": precision}), \
-                 patch.object(entrypoint, "load_codetask_dataset", return_value=([0] * 100, {"source_rows": 200})), \
-                 patch.object(entrypoint, "prompt_length_stats", return_value=stats), \
+            with patch.object(sys, "argv", argv), patch.dict(sys.modules, modules), \
+                 patch.dict(entrypoint.os.environ, {"SDFT_PRECISION": "float16"}), \
+                 patch.object(entrypoint, "load_lora_model", return_value=model) as load, \
+                 patch.object(entrypoint, "freeze_except_lora", return_value=["lora_A"]) as freeze, \
+                 patch.object(entrypoint, "load_codetask_dataset", return_value=([0]*100, {"source_rows": 200})), \
+                 patch.object(entrypoint, "prompt_length_stats", return_value={}), \
                  contextlib.redirect_stdout(io.StringIO()):
                 entrypoint.main()
-            self.assertEqual(config_type.call_args.kwargs["steps_per_generation"], 4)
-            self.assertEqual(config_type.call_args.kwargs["gradient_accumulation_steps"], 32)
-            self.assertEqual(models.from_pretrained.call_count, 2)
-            self.assertEqual(config_type.call_args.kwargs["fp16"], precision == "float16")
-            self.assertEqual(config_type.call_args.kwargs["bf16"], precision == "bfloat16")
-            for call in models.from_pretrained.call_args_list:
-                self.assertEqual(call.args[0], "previous/final")
-                self.assertEqual(call.kwargs["dtype"], "fp32" if precision == "float16" else "bf16")
-                self.assertEqual(call.kwargs["attn_implementation"], "sdpa")
-            trainer.train.assert_called_once_with()
-            trainer.save_model.assert_called_once_with(str(Path(temp) / "final"))
-            tokenizer.save_pretrained.assert_called_once_with(str(Path(temp) / "final"))
+            load.assert_called_once_with("previous/final", tokenizer, "fp16", trainable=True)
+            freeze.assert_called_once_with(model)
+            self.assertFalse(config_type.call_args.kwargs["use_vllm"])
+            self.assertTrue(config_type.call_args.kwargs["save_only_model"])
+            trainer.train.assert_called_once()
             marker = json.loads((Path(temp) / "final" / "training_complete.json").read_text())
-            self.assertEqual(marker["global_step"], 4)
+            self.assertEqual(marker["training_mode"], "lora_only")
 
     def test_preparation_exits_before_loading_training_dependencies(self):
         tokenizer = Mock()

@@ -118,6 +118,10 @@ class MemoryEfficientSyncRefModelCallback(TrainerCallback):
         
         This is O(1) in memory overhead instead of O(N) where N is model size.
         """
+        if is_peft_model(model):
+            from lora_runtime import sync_lora_teacher
+            sync_lora_teacher(model, target_model, alpha)
+            return
         deepspeed_plugin = AcceleratorState().deepspeed_plugin
         is_zero3 = deepspeed_plugin is not None and deepspeed_plugin.zero_stage == 3
         
@@ -246,6 +250,14 @@ class DistilTrainer(BaseTrainer):
 
     _tag_names = ["trl", "distil"]
     _name = "Distil"
+
+    def _save(self, output_dir=None, state_dict=None):
+        from lora_runtime import save_lora
+        output_dir = output_dir or self.args.output_dir
+        model = self.accelerator.unwrap_model(self.model)
+        save_lora(model, output_dir)
+        if self.processing_class is not None:
+            self.processing_class.save_pretrained(output_dir)
 
     def __init__(
         self,

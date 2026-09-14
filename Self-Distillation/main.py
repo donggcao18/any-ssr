@@ -6,6 +6,7 @@ from math import gcd
 from pathlib import Path
 from local_model import model_local_files_only
 from precision import precision_name, training_dtype_name
+from lora_runtime import load_lora_model, freeze_except_lora
 
 from codetask_data import CODETASK_REPO, CODETASK_TASKS, load_codetask_dataset, prompt_length_stats
 
@@ -127,6 +128,7 @@ Now answer with a response of your own, including the thinking process.
 
 def main():
     args = parse_args()
+    args.training_mode = "lora_only"
     args.precision = precision_name()
     args.vllm_attention_backend = os.environ.get("VLLM_ATTENTION_BACKEND", "auto")
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -201,7 +203,7 @@ def main():
 
     config = DistilConfig(
         seed=args.seed,
-        use_vllm = True,
+        use_vllm = False,
         vllm_mode="colocate",
         vllm_tensor_parallel_size=1, 
         vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
@@ -226,6 +228,7 @@ def main():
         num_iterations = 1,
         num_generations = 1,
         save_steps = args.save_steps,
+        save_only_model = True,
         max_grad_norm = 1,
         report_to = args.report_to,
         output_dir = args.output_dir,
@@ -233,17 +236,18 @@ def main():
         sync_ref_model = True,
         ref_model_sync_steps = 1,
         ref_model_mixup_alpha = args.ref_model_mixup_alpha,
-        vllm_importance_sampling_correction = True,
+        vllm_importance_sampling_correction = False,
         num_loss_tokens_to_skip = args.num_loss_tokens_to_skip,
     )
     if args.dataset_name == "codetask" and len(dataset) % config.generation_batch_size:
         raise ValueError("CodeTask subset size must be divisible by the global generation batch. "
                          "Adjust the subset/batch size.")
-    model_dtype = getattr(torch, training_dtype_name())
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=model_dtype,
-        attn_implementation="sdpa", local_files_only=model_local_files_only())
-    teacher_model = AutoModelForCausalLM.from_pretrained(args.model_name, dtype=model_dtype,
-        attn_implementation="sdpa", local_files_only=model_local_files_only())
+    from copy import deepcopy
+    model_dtype = getattr(torch, precision_name())
+    model = load_lora_model(args.model_name, tokenizer, model_dtype, trainable=True)
+    teacher_model = deepcopy(model)
+    teacher_model.requires_grad_(False)
+    teacher_model.eval()
     trainer = DistilTrainer(
         model=model,
         ref_model=teacher_model,
@@ -251,6 +255,14 @@ def main():
         train_dataset=dataset,
         processing_class=tokenizer,
     )
+    # Check after TRL's PEFT preparation too: only adapters may reach the optimizer.
+    names = freeze_except_lora(trainer.model)
+    if rank == 0:
+        print(f"LoRA-only training: {len(names)} adapter tensors; all base weights frozen", flush=True)
+        print(f"Batch: {world_size} GPUs x {args.per_device_train_batch_size} prompts/GPU "
+              f"x {args.num_prompts_per_batch} accumulation steps = "
+              f"{world_size * args.per_device_train_batch_size * args.num_prompts_per_batch} "
+              "prompts per optimizer step", flush=True)
     trainer.train()
     final_dir = output_dir / "final"
     trainer.save_model(str(final_dir))
@@ -262,6 +274,7 @@ def main():
             "dataset": args.dataset_name,
             "task": args.codetask_task,
             "global_step": trainer.state.global_step,
+            "training_mode": "lora_only",
         }, indent=2), encoding="utf-8")
 
 
