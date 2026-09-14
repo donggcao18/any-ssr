@@ -41,6 +41,6 @@ deepspeed --master_port "$port" training/main_anamoe.py \
 : "${HF_MODEL_REPO_ID:=ankhanhtran02/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1 }"
 
 python upload_output_to_hf.py \
-  --output-dir "./output_models/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1 " \
+  --output-dir "./output_models/L2P_Qwen2.5-Coder-1.5B_with_instruction_pool_executable_perm_1" \
   --repo-id "$HF_MODEL_REPO_ID" \
   --commit-message "Upload L2P executable outputs"
