@@ -51,8 +51,8 @@ class LoraTests(unittest.TestCase):
             model.save_pretrained.assert_called_once_with(path, safe_serialization=True, save_embedding_layers=False)
             self.assertEqual(json.loads((Path(path) / "lora_metadata.json").read_text())["vocab_size"], 32)
 
-    @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("torch", "peft", "transformers")),
-                         "PyTorch/PEFT/Transformers not installed locally")
+    @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("torch", "peft", "transformers", "trl")),
+                         "PyTorch/PEFT/Transformers/TRL not installed locally")
     def test_real_optimizer_preserves_base_and_adapter_reload(self):
         import torch
         from copy import deepcopy
@@ -73,7 +73,20 @@ class LoraTests(unittest.TestCase):
             initial = {name: param.detach().clone() for name, param in model.named_parameters()}
             optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=0.1)
             tokens = torch.tensor([[1, 2, 3, 4]])
-            model(input_ids=tokens, labels=tokens).loss.backward()
+            from generation_checkpoint import unwrap_model_for_generation
+            accelerator = types.SimpleNamespace(unwrap_model=lambda value: value,
+                                                state=types.SimpleNamespace(deepspeed_plugin=None))
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+            # Exercise the actual pinned TRL context before the LoRA backward pass.
+            for _ in range(2):
+                with unwrap_model_for_generation(model, accelerator) as unwrapped, torch.no_grad():
+                    unwrapped.generate(tokens, max_new_tokens=1, do_sample=False, pad_token_id=0)
+                model.train()
+                loss = model(input_ids=tokens, labels=tokens).loss
+                self.assertTrue(loss.requires_grad)
+                loss.backward()
+                self.assertTrue(any(p.grad is not None for n, p in model.named_parameters()
+                                    if lora.is_lora_parameter(n)))
             optimizer.step()
             lora.sync_lora_teacher(model, teacher, 0.5)
             self.assertTrue(any(not torch.equal(initial[n], p) for n, p in model.named_parameters()

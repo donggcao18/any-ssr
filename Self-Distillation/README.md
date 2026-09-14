@@ -353,6 +353,10 @@ adapter evaluation run once; evaluation uses the first selected GPU. Edit
 `SDFT_PRECISION=float16` supports RTX 8000; frozen base weights use FP16 while
 PEFT promotes trainable adapters to FP32 for AMP gradient scaling.
 Gradient checkpointing remains configurable through `SDFT_GRADIENT_CHECKPOINTING`.
+`generation_checkpoint.py` preserves `use_reentrant=False` after Transformers
+generation. TRL 0.24 otherwise restores checkpointing with default arguments,
+which can disconnect LoRA gradients when embedding weights are frozen. Copy
+this helper alongside `distil_trainer.py` when updating the server.
 
 Training retains the largest prefix of the frozen sample divisible by GPU count
 and per-GPU batch, recording retained/dropped counts. Evaluation subsets are
