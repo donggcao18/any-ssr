@@ -10,7 +10,7 @@ port=$(shuf -i25000-30000 -n1)
 
 deepspeed --master_port "$port" training/main_anamoe.py \
   --data_path /path/to/LLM-CL-Benchmark_5000 \
-  --dataset_name all \
+  --dataset_name shell,typescript,php,java,csharp,rust,swift,cpp,python \
   --model_name_or_path Qwen/Qwen2.5-Coder-1.5B \
   --benchmark executable \
   --lr_scheduler_type cosine \
